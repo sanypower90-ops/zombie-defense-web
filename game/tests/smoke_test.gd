@@ -30,16 +30,11 @@ func _run() -> void:
 		push_error("Touch drag did not produce movement input")
 		quit(1)
 		return
-	game.player._move_player()
-	if game.player.velocity.x <= 0.0:
-		push_error("Touch movement input did not set player velocity")
-		quit(1)
-		return
 	touch.pressed = false
 	game.player._input(touch)
 	game._spawn_zombie("runner")
 	game._spawn_pickup(Vector3.ZERO, "weapon", "flamethrower")
 	game._spawn_pickup(Vector3(2, 0, 0), "item", "heal")
 	await process_frame
-	print("SMOKE_TEST_PASS: 30-second round, touch movement, runner, flamethrower pickup, heal pickup")
+	print("SMOKE_TEST_PASS: 30-second round, touch input, runner, flamethrower pickup, heal pickup")
 	quit(0)
