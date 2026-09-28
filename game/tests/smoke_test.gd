@@ -15,20 +15,24 @@ func _run() -> void:
 		push_error("Game start or 30-second round failed")
 		quit(1)
 		return
-	var start_x: float = game.player.global_position.x
+	var viewport_size: Vector2 = game.player.get_viewport().get_visible_rect().size
+	var touch_start := Vector2(viewport_size.x * 0.1, viewport_size.y * 0.8)
 	var touch = InputEventScreenTouch.new()
 	touch.index = 1
-	touch.position = Vector2(60, 600)
+	touch.position = touch_start
 	touch.pressed = true
 	game.player._input(touch)
 	var drag = InputEventScreenDrag.new()
 	drag.index = 1
-	drag.position = Vector2(160, 600)
+	drag.position = touch_start + Vector2(100, 0)
 	game.player._input(drag)
-	await physics_frame
-	await physics_frame
-	if game.player.global_position.x <= start_x:
-		push_error("Touch drag did not move the player")
+	if game.player.touch_move_vector.x <= 0.0:
+		push_error("Touch drag did not produce movement input")
+		quit(1)
+		return
+	game.player._move_player()
+	if game.player.velocity.x <= 0.0:
+		push_error("Touch movement input did not set player velocity")
 		quit(1)
 		return
 	touch.pressed = false
