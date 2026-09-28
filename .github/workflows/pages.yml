@@ -25,6 +25,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+      - name: Set up Godot export templates
+        run: |
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          mv /root/.local/share/godot/export_templates/4.7.2.stable "$HOME/.local/share/godot/export_templates/"
+          test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/web_nothreads_release.zip"
       - name: Import resources
         run: godot --headless --path game --import
       - name: Check game startup and pickups
