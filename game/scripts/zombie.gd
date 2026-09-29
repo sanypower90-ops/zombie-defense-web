@@ -208,6 +208,7 @@ func die() -> void:
 	if kind == "exploder" and game != null:
 		game.exploder_burst(global_position)
 	if game != null:
+		game.play_zombie_death_sfx(kind)
 		game.on_zombie_killed(self, kind, global_position)
 	var fall = create_tween()
 	fall.set_parallel(true)
