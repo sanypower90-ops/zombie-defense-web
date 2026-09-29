@@ -48,20 +48,21 @@ func _run() -> void:
 		quit(1)
 		return
 	game.game_menu_button.pressed.emit()
-	if not game.game_menu_panel.visible:
-		push_error("The in-game menu did not open")
+	if not game.game_menu_panel.visible or not game.gameplay_paused:
+		push_error("The in-game menu did not open and pause")
 		quit(1)
 		return
 	game.pause_button.pressed.emit()
-	if not game.gameplay_paused:
-		push_error("The pause button did not pause the game")
-		quit(1)
-		return
-	game.pause_button.pressed.emit()
-	if game.gameplay_paused:
+	if game.gameplay_paused or game.game_menu_panel.visible:
 		push_error("The resume button did not resume the game")
 		quit(1)
 		return
+	game.game_menu_button.pressed.emit()
+	if not game.gameplay_paused:
+		push_error("The menu button did not pause again")
+		quit(1)
+		return
+	game.game_menu_button.pressed.emit()
 	var fixed_rotation = game.camera.rotation
 	game.player.global_position.x += 1.0
 	game._update_camera()
