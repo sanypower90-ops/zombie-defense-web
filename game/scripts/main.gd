@@ -235,8 +235,8 @@ func _toggle_game_menu() -> void:
 	if not game_active or upgrade_panel.visible or leaderboard_panel.visible:
 		return
 	game_menu_panel.visible = not game_menu_panel.visible
-	if not game_menu_panel.visible and gameplay_paused:
-		game_menu_panel.show()
+	gameplay_paused = game_menu_panel.visible
+	pause_button.text = "계속하기" if gameplay_paused else "일시정지"
 
 func _toggle_pause() -> void:
 	if not game_active:
@@ -616,6 +616,7 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	if menu_panel == null or view_size.x <= 0.0 or view_size.y <= 0.0:
 		return
 	var portrait = view_size.y > view_size.x * 1.05
+	_set_responsive_fonts(menu_panel.get_parent(), 25 if mobile and portrait else (21 if mobile else 16))
 	var top_scale = 2.8 if mobile and portrait else (1.3 if mobile else 1.0)
 	hud_top_left.scale = Vector2.ONE * top_scale
 	hud_top_left.position = Vector2(18, 16)
@@ -670,9 +671,18 @@ func _make_touch_zone(text: String, position: Vector2, size: Vector2) -> PanelCo
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", 28)
 	panel.add_child(label)
 	return panel
+
+func _set_responsive_fonts(node: Node, font_size: int) -> void:
+	if node is Button or node is Label or node is LineEdit:
+		var control = node as Control
+		if control.has_meta("responsive_font") or not control.has_theme_font_size_override("font_size"):
+			control.add_theme_font_size_override("font_size", font_size)
+			control.set_meta("responsive_font", true)
+	for child in node.get_children():
+		_set_responsive_fonts(child, font_size)
 
 func _touch_select_weapon(slot: int) -> void:
 	if player != null and game_active:
