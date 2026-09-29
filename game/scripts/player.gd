@@ -1,6 +1,7 @@
 extends CharacterBody3D
 
 const VisualFactory = preload("res://scripts/visual_factory.gd")
+const PLAYER_VISUAL_SCALE := 1.4
 
 var game: Node
 
@@ -18,15 +19,12 @@ var special_slots: Array = []
 var selected_slot = 0
 var next_fire_time = 0.0
 
-# Dual-stick touch controls. Left stick = move, right stick = aim + auto fire.
-const TOUCH_STICK_RADIUS := 92.0
+# One thumb controls movement, facing and automatic fire together.
+const TOUCH_STICK_RADIUS := 150.0
 const TOUCH_STICK_DEADZONE := 0.16
 var move_touch_id = -1
-var aim_touch_id = -1
 var move_touch_origin = Vector2.ZERO
-var aim_touch_origin = Vector2.ZERO
 var touch_move_vector = Vector2.ZERO
-var touch_aim_vector = Vector2.ZERO
 var touch_firing = false
 
 var speed_buff_until = 0.0
@@ -56,6 +54,7 @@ func _build_visual() -> void:
 	add_child(shape_node)
 
 	visual_root = VisualFactory.player_visual()
+	visual_root.scale = Vector3.ONE * PLAYER_VISUAL_SCALE
 	add_child(visual_root)
 	weapon_mount = visual_root.get_node("WeaponMount")
 	visual_weapon_id = "pistol"
@@ -108,34 +107,23 @@ func _unhandled_input(event: InputEvent) -> void:
 			cycle_weapon(1)
 
 func _begin_touch(index: int, position: Vector2) -> void:
-	var view_size = get_viewport().get_visible_rect().size
-	# Reserve the center area for weapon/reload UI buttons.
-	if position.y < view_size.y * 0.40:
+	if game.touch_left_zone == null or not game.touch_left_zone.get_global_rect().has_point(position):
 		return
-	if position.x <= view_size.x * 0.32 and move_touch_id < 0:
+	if move_touch_id < 0:
 		move_touch_id = index
 		move_touch_origin = position
 		touch_move_vector = Vector2.ZERO
-	elif position.x >= view_size.x * 0.68 and aim_touch_id < 0:
-		aim_touch_id = index
-		aim_touch_origin = position
-		touch_aim_vector = Vector2.ZERO
 		touch_firing = false
 
 func _update_touch(index: int, position: Vector2) -> void:
 	if index == move_touch_id:
 		touch_move_vector = _stick_vector(move_touch_origin, position)
-	elif index == aim_touch_id:
-		touch_aim_vector = _stick_vector(aim_touch_origin, position)
-		touch_firing = touch_aim_vector.length() >= TOUCH_STICK_DEADZONE
+		touch_firing = touch_move_vector.length() >= TOUCH_STICK_DEADZONE
 
 func _release_touch(index: int) -> void:
 	if index == move_touch_id:
 		move_touch_id = -1
 		touch_move_vector = Vector2.ZERO
-	if index == aim_touch_id:
-		aim_touch_id = -1
-		touch_aim_vector = Vector2.ZERO
 		touch_firing = false
 
 func _stick_vector(origin: Vector2, position: Vector2) -> Vector2:
@@ -173,9 +161,9 @@ func _move_player() -> void:
 	global_position = p
 
 func _aim_at_pointer() -> void:
-	# Right touch-stick takes priority over the mouse.
-	if aim_touch_id >= 0 and touch_aim_vector.length() >= TOUCH_STICK_DEADZONE:
-		var world_dir = Vector3(touch_aim_vector.x, 0.0, touch_aim_vector.y)
+	# The movement stick also sets the firing direction.
+	if move_touch_id >= 0:
+		var world_dir = Vector3(touch_move_vector.x, 0.0, touch_move_vector.y)
 		if world_dir.length_squared() > 0.001:
 			var target = global_position + world_dir.normalized() * 8.0
 			target.y = global_position.y
@@ -228,6 +216,7 @@ func _handle_fire() -> void:
 		_remove_empty_current_special()
 		return
 	if game.fire_weapon(self, weapon_id):
+		game.play_weapon_sfx(weapon_id)
 		next_fire_time = now + 1.0 / rate
 		recoil_left = 1.0
 		_consume_current_ammo(1)
