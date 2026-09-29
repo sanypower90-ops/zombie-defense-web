@@ -49,28 +49,51 @@ static func cylinder(parent: Node3D, pos: Vector3, height: float, top_radius: fl
 	parent.add_child(node)
 	return node
 
+static func _joint(parent: Node3D, name: String, pos: Vector3) -> Node3D:
+	var joint = Node3D.new()
+	joint.name = name
+	joint.position = pos
+	parent.add_child(joint)
+	return joint
+
 static func player_visual() -> Node3D:
 	var root = Node3D.new()
 	root.name = "SurvivorVisual"
+	var upper = _joint(root, "UpperBody", Vector3.ZERO)
 	var jacket = Color(0.83, 0.30, 0.075)
 	var charcoal = Color(0.105, 0.12, 0.13)
 	var stripe = Color(0.74, 0.75, 0.66)
-	box(root, Vector3(0, 0.08, 0), Vector3(0.67, 0.75, 0.39), jacket)
-	box(root, Vector3(0, 0.20, -0.205), Vector3(0.57, 0.10, 0.025), stripe)
-	box(root, Vector3(0, -0.10, -0.205), Vector3(0.57, 0.08, 0.025), stripe)
-	box(root, Vector3(0, 0.13, 0.24), Vector3(0.53, 0.64, 0.18), charcoal) # backpack
+	box(upper, Vector3(0, 0.08, 0), Vector3(0.67, 0.75, 0.39), jacket)
+	box(upper, Vector3(0, 0.20, -0.205), Vector3(0.57, 0.10, 0.025), stripe)
+	box(upper, Vector3(0, -0.10, -0.205), Vector3(0.57, 0.08, 0.025), stripe)
+	box(upper, Vector3(0, 0.13, 0.24), Vector3(0.53, 0.64, 0.18), charcoal) # backpack
 	for side in [-1.0, 1.0]:
-		box(root, Vector3(side * 0.43, 0.03, -0.07), Vector3(0.17, 0.60, 0.23), jacket)
-		box(root, Vector3(side * 0.43, -0.04, -0.195), Vector3(0.18, 0.075, 0.03), stripe)
-		box(root, Vector3(side * 0.18, -0.52, 0), Vector3(0.24, 0.55, 0.25), charcoal)
-		box(root, Vector3(side * 0.18, -0.78, -0.085), Vector3(0.29, 0.15, 0.40), Color(0.14, 0.12, 0.11))
-	sphere(root, Vector3(0, 0.62, -0.02), 0.25, Color(0.58, 0.42, 0.31))
-	box(root, Vector3(0, 0.80, 0.04), Vector3(0.49, 0.13, 0.43), charcoal)
-	var mount = Node3D.new()
-	mount.name = "WeaponMount"
-	mount.position = Vector3(0.34, 0.01, -0.35)
-	root.add_child(mount)
+		var arm = _joint(upper, "ArmL" if side < 0.0 else "ArmR", Vector3(side * 0.43, 0.28, -0.07))
+		box(arm, Vector3(0, -0.25, 0), Vector3(0.17, 0.52, 0.23), jacket)
+		box(arm, Vector3(0, -0.32, -0.125), Vector3(0.18, 0.075, 0.03), stripe)
+		sphere(arm, Vector3(0, -0.55, -0.02), 0.11, Color(0.13, 0.13, 0.12))
+		var leg = _joint(root, "LegL" if side < 0.0 else "LegR", Vector3(side * 0.18, -0.30, 0))
+		box(leg, Vector3(0, -0.22, 0), Vector3(0.24, 0.55, 0.25), charcoal)
+		box(leg, Vector3(0, -0.48, -0.085), Vector3(0.29, 0.15, 0.40), Color(0.14, 0.12, 0.11))
+	sphere(upper, Vector3(0, 0.62, -0.02), 0.25, Color(0.58, 0.42, 0.31))
+	box(upper, Vector3(0, 0.80, 0.04), Vector3(0.49, 0.13, 0.43), charcoal)
+	var mount = _joint(root, "WeaponMount", Vector3(0.34, 0.01, -0.35))
 	return root
+
+static func animate_player(root: Node3D, phase: float, motion: float, recoil: float) -> void:
+	if root == null:
+		return
+	var stride = sin(phase) * 0.58 * motion
+	root.get_node("LegL").rotation.x = stride
+	root.get_node("LegR").rotation.x = -stride
+	root.get_node("UpperBody/ArmL").rotation.x = -stride * 0.58 - recoil * 0.32
+	root.get_node("UpperBody/ArmR").rotation.x = stride * 0.58 - recoil * 0.32
+	var upper: Node3D = root.get_node("UpperBody")
+	upper.position.y = abs(sin(phase)) * 0.045 * motion + sin(phase * 0.25) * 0.012
+	upper.rotation.z = sin(phase) * 0.035 * motion
+	var mount: Node3D = root.get_node("WeaponMount")
+	mount.position.z = -0.35 + recoil * 0.16
+	mount.rotation.x = -recoil * 0.16
 
 static func set_player_weapon(mount: Node3D, weapon_id: String) -> void:
 	for child in mount.get_children():
@@ -99,6 +122,7 @@ static func set_player_weapon(mount: Node3D, weapon_id: String) -> void:
 static func zombie_visual(kind: String) -> Node3D:
 	var root = Node3D.new()
 	root.name = "ZombieVisual"
+	var upper = _joint(root, "UpperBody", Vector3.ZERO)
 	var cloth = Color(0.37, 0.40, 0.33)
 	var skin = Color(0.53, 0.52, 0.44)
 	var pants = Color(0.22, 0.24, 0.23)
@@ -114,23 +138,40 @@ static func zombie_visual(kind: String) -> Node3D:
 	if kind == "brute": scale_factor = 1.45
 	if kind in ["boss", "final_boss"]: scale_factor = 2.15
 	root.scale = Vector3.ONE * scale_factor
-	box(root, Vector3(0, 0.02, 0), Vector3(0.64, 0.72, 0.38), cloth)
+	box(upper, Vector3(0, 0.02, 0), Vector3(0.64, 0.72, 0.38), cloth)
 	for side in [-1.0, 1.0]:
-		box(root, Vector3(side * 0.43, 0.00, -0.045), Vector3(0.17, 0.62, 0.18), skin)
-		box(root, Vector3(side * 0.17, -0.52, 0), Vector3(0.23, 0.57, 0.23), pants)
-		box(root, Vector3(side * 0.17, -0.78, -0.08), Vector3(0.27, 0.13, 0.33), Color(0.15, 0.14, 0.13))
-	sphere(root, Vector3(0, 0.61, -0.02), 0.24, skin)
-	sphere(root, Vector3(-0.09, 0.64, -0.23), 0.033, Color(0.95, 0.86, 0.67))
-	sphere(root, Vector3(0.09, 0.64, -0.23), 0.033, Color(0.95, 0.86, 0.67))
+		var arm = _joint(upper, "ArmL" if side < 0.0 else "ArmR", Vector3(side * 0.43, 0.28, -0.045))
+		box(arm, Vector3(0, -0.27, -0.08), Vector3(0.17, 0.62, 0.18), skin)
+		var leg = _joint(root, "LegL" if side < 0.0 else "LegR", Vector3(side * 0.17, -0.30, 0))
+		box(leg, Vector3(0, -0.22, 0), Vector3(0.23, 0.57, 0.23), pants)
+		box(leg, Vector3(0, -0.48, -0.08), Vector3(0.27, 0.13, 0.33), Color(0.15, 0.14, 0.13))
+	var head = _joint(upper, "Head", Vector3(0, 0.61, -0.02))
+	sphere(head, Vector3.ZERO, 0.24, skin)
+	sphere(head, Vector3(-0.09, 0.03, -0.21), 0.033, Color(0.95, 0.86, 0.67))
+	sphere(head, Vector3(0.09, 0.03, -0.21), 0.033, Color(0.95, 0.86, 0.67))
 	if kind in ["armored", "shield"]:
-		box(root, Vector3(0, 0.17, -0.23), Vector3(0.61, 0.42, 0.08), Color(0.40, 0.42, 0.40), 0.35)
-		box(root, Vector3(0, 0.82, 0), Vector3(0.55, 0.14, 0.48), Color(0.74, 0.34, 0.10))
+		box(upper, Vector3(0, 0.17, -0.23), Vector3(0.61, 0.42, 0.08), Color(0.40, 0.42, 0.40), 0.35)
+		box(head, Vector3(0, 0.21, 0.02), Vector3(0.55, 0.14, 0.48), Color(0.74, 0.34, 0.10))
 	if kind in ["toxic", "exploder"]:
-		sphere(root, Vector3(0, -0.06, -0.24), 0.40, Color(0.54, 0.64, 0.30) if kind == "toxic" else Color(0.58, 0.27, 0.19))
+		sphere(upper, Vector3(0, -0.06, -0.24), 0.40, Color(0.54, 0.64, 0.30) if kind == "toxic" else Color(0.58, 0.27, 0.19))
 	if kind in ["brute", "boss", "final_boss"]:
 		for side in [-1.0, 1.0]:
-			box(root, Vector3(side * 0.46, 0.29, 0), Vector3(0.36, 0.28, 0.48), cloth)
+			box(upper, Vector3(side * 0.46, 0.29, 0), Vector3(0.36, 0.28, 0.48), cloth)
 	return root
+
+static func animate_zombie(root: Node3D, phase: float, motion: float, attack: float, hurt: float) -> void:
+	if root == null:
+		return
+	var stride = sin(phase) * 0.65 * motion
+	root.get_node("LegL").rotation.x = stride
+	root.get_node("LegR").rotation.x = -stride
+	root.get_node("UpperBody/ArmL").rotation.x = -0.75 - stride * 0.36 - attack * 0.85
+	root.get_node("UpperBody/ArmR").rotation.x = -0.75 + stride * 0.36 - attack * 0.85
+	var upper: Node3D = root.get_node("UpperBody")
+	upper.position.y = abs(sin(phase)) * 0.045 * motion
+	upper.rotation.z = sin(phase * 0.5) * 0.08 * motion + hurt * 0.18
+	upper.rotation.x = -0.13 - attack * 0.20
+	root.get_node("UpperBody/Head").rotation.z = sin(phase * 0.5) * 0.09 + hurt * 0.25
 
 static func pickup_visual(kind: String, payload: String, color: Color) -> Node3D:
 	var root = Node3D.new()

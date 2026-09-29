@@ -15,6 +15,10 @@ var next_attack_time = 0.0
 var next_special_time = 0.0
 var regen_per_second = 0.0
 var dead = false
+var visual_root: Node3D
+var walk_phase = 0.0
+var attack_left = 0.0
+var hurt_left = 0.0
 
 func setup(p_game: Node, p_kind: String, p_round: int) -> void:
 	game = p_game
@@ -114,7 +118,8 @@ func _build_visual() -> void:
 	shape_node.shape = capsule_shape
 	add_child(shape_node)
 
-	add_child(VisualFactory.zombie_visual(kind))
+	visual_root = VisualFactory.zombie_visual(kind)
+	add_child(visual_root)
 
 func _color_for_kind() -> Color:
 	match kind:
@@ -153,7 +158,9 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		if now >= next_special_time:
 			next_special_time = now + 1.6
+			attack_left = 1.0
 			game.enemy_ranged_attack(self, contact_damage)
+		_animate_visual(delta)
 		return
 
 	if kind == "screamer" and now >= next_special_time:
@@ -172,11 +179,21 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		if now >= next_attack_time:
 			next_attack_time = now + attack_cooldown
+			attack_left = 1.0
 			target.apply_damage(contact_damage)
+	_animate_visual(delta)
+
+func _animate_visual(delta: float) -> void:
+	var motion = clamp(velocity.length() / max(move_speed, 0.01), 0.0, 1.0)
+	walk_phase += delta * (10.0 if motion > 0.05 else 2.0)
+	attack_left = max(attack_left - delta * 3.8, 0.0)
+	hurt_left = max(hurt_left - delta * 5.0, 0.0)
+	VisualFactory.animate_zombie(visual_root, walk_phase, motion, attack_left, hurt_left)
 
 func take_damage(amount: float) -> void:
 	if dead:
 		return
+	hurt_left = 1.0
 	hp -= max(amount, 0.0)
 	if hp <= 0.0:
 		die()
@@ -185,8 +202,16 @@ func die() -> void:
 	if dead:
 		return
 	dead = true
+	remove_from_group("zombie")
+	collision_layer = 0
+	collision_mask = 0
 	if kind == "exploder" and game != null:
 		game.exploder_burst(global_position)
 	if game != null:
 		game.on_zombie_killed(self, kind, global_position)
-	queue_free()
+	var fall = create_tween()
+	fall.set_parallel(true)
+	fall.tween_property(visual_root, "rotation:z", 1.35, 0.32)
+	fall.tween_property(visual_root, "position:y", -0.48, 0.32)
+	fall.set_parallel(false)
+	fall.tween_callback(queue_free)

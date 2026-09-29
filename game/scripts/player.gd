@@ -34,7 +34,10 @@ var damage_buff_until = 0.0
 var armor_buff_until = 0.0
 var invuln_until = 0.0
 var weapon_mount: Node3D
+var visual_root: Node3D
 var visual_weapon_id = ""
+var walk_phase = 0.0
+var recoil_left = 0.0
 
 func setup(p_game: Node) -> void:
 	game = p_game
@@ -50,9 +53,9 @@ func _build_visual() -> void:
 	shape_node.shape = capsule_shape
 	add_child(shape_node)
 
-	var visual = VisualFactory.player_visual()
-	add_child(visual)
-	weapon_mount = visual.get_node("WeaponMount")
+	visual_root = VisualFactory.player_visual()
+	add_child(visual_root)
+	weapon_mount = visual_root.get_node("WeaponMount")
 	visual_weapon_id = "pistol"
 	VisualFactory.set_player_weapon(weapon_mount, visual_weapon_id)
 
@@ -61,6 +64,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if not game.can_player_act():
 		velocity = Vector3.ZERO
+		VisualFactory.animate_player(visual_root, walk_phase, 0.0, 0.0)
 		return
 	_update_reload(delta)
 	_handle_selection_keys()
@@ -71,6 +75,10 @@ func _physics_process(delta: float) -> void:
 	_move_player()
 	_aim_at_pointer()
 	_handle_fire()
+	var motion = clamp(velocity.length() / max(base_move_speed, 0.01), 0.0, 1.0)
+	walk_phase += delta * (9.0 if motion > 0.05 else 2.0)
+	recoil_left = max(recoil_left - delta * 6.0, 0.0)
+	VisualFactory.animate_player(visual_root, walk_phase, motion, recoil_left)
 
 func _input(event: InputEvent) -> void:
 	# Touch release is processed even while paused so a finger never remains stuck.
@@ -219,6 +227,7 @@ func _handle_fire() -> void:
 		return
 	if game.fire_weapon(self, weapon_id):
 		next_fire_time = now + 1.0 / rate
+		recoil_left = 1.0
 		_consume_current_ammo(1)
 
 func begin_reload() -> void:
