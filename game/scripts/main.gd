@@ -14,6 +14,10 @@ const MAP_HALF_SIZE := 38.0
 
 var player
 var camera: Camera3D
+var menu_music: AudioStreamPlayer
+var gameplay_music: AudioStreamPlayer
+var music_button: Button
+var music_enabled = true
 var save_manager
 var leaderboard
 
@@ -97,6 +101,7 @@ var _leaderboard_resume_after_close = false
 
 func _ready() -> void:
 	randomize()
+	_build_music()
 	save_manager = SaveManagerScript.new()
 	add_child(save_manager)
 	leaderboard = LeaderboardScript.new()
@@ -107,6 +112,38 @@ func _ready() -> void:
 	_build_world()
 	_build_ui()
 	_show_main_menu()
+
+func _build_music() -> void:
+	menu_music = AudioStreamPlayer.new()
+	var menu_track = load("res://assets/audio/menu.mp3") as AudioStreamMP3
+	menu_track.loop = true
+	menu_music.stream = menu_track
+	menu_music.volume_db = -16.0
+	add_child(menu_music)
+	gameplay_music = AudioStreamPlayer.new()
+	var game_track = load("res://assets/audio/gameplay.mp3") as AudioStreamMP3
+	game_track.loop = true
+	gameplay_music.stream = game_track
+	gameplay_music.volume_db = -14.0
+	add_child(gameplay_music)
+
+func _switch_music(playing_game: bool) -> void:
+	if menu_music == null or gameplay_music == null:
+		return
+	var chosen = gameplay_music if playing_game else menu_music
+	var other = menu_music if playing_game else gameplay_music
+	other.stop()
+	if music_enabled and not chosen.playing:
+		chosen.play()
+
+func _toggle_music() -> void:
+	music_enabled = not music_enabled
+	music_button.text = "♪ 켜짐" if music_enabled else "♪ 꺼짐"
+	if music_enabled:
+		_switch_music(game_active)
+	else:
+		menu_music.stop()
+		gameplay_music.stop()
 
 func _physics_process(delta: float) -> void:
 	if not can_world_update():
@@ -132,13 +169,15 @@ func can_player_act() -> bool:
 func _build_world() -> void:
 	var light = DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-58.0, -28.0, 0.0)
-	light.light_energy = 1.15
+	light.light_color = Color(0.74, 0.73, 1.0)
+	light.light_energy = 0.85
 	light.shadow_enabled = true
 	add_child(light)
 
 	var fill = DirectionalLight3D.new()
 	fill.rotation_degrees = Vector3(-50.0, 145.0, 0.0)
-	fill.light_energy = 0.35
+	fill.light_color = Color(0.35, 0.88, 1.0)
+	fill.light_energy = 0.46
 	add_child(fill)
 
 	var ground = StaticBody3D.new()
@@ -149,18 +188,18 @@ func _build_world() -> void:
 	plane.size = Vector2(80.0, 80.0)
 	ground_mesh.mesh = plane
 	var ground_mat = StandardMaterial3D.new()
-	ground_mat.albedo_color = Color(0.31, 0.36, 0.34)
+	ground_mat.albedo_color = Color(0.12, 0.10, 0.19)
 	ground_mat.roughness = 0.95
 	ground_mesh.material_override = ground_mat
 	ground.add_child(ground_mesh)
 	add_child(ground)
 
 	# Asphalt strip and lane markings follow the supplied top-down road reference.
-	VisualFactory.box(self, Vector3(8.0, 0.012, 0), Vector3(14.0, 0.02, 76.0), Color(0.25, 0.31, 0.31))
+	VisualFactory.box(self, Vector3(8.0, 0.012, 0), Vector3(14.0, 0.02, 76.0), Color(0.16, 0.14, 0.25))
 	for z in range(-36, 38, 6):
-		VisualFactory.box(self, Vector3(8.0, 0.031, float(z)), Vector3(0.16, 0.025, 2.6), Color(0.75, 0.76, 0.65))
-	for edge_x in [1.0, 15.0]:
-		VisualFactory.box(self, Vector3(edge_x, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(0.57, 0.62, 0.56))
+		VisualFactory.neon_box(self, Vector3(8.0, 0.031, float(z)), Vector3(0.16, 0.025, 2.6), Color(0.46, 0.87, 1.0))
+	VisualFactory.neon_box(self, Vector3(1.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(0.95, 0.42, 0.86))
+	VisualFactory.neon_box(self, Vector3(15.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(0.39, 0.86, 1.0))
 
 	_make_prop("car", Vector3(-14, 1.0, -8), Vector3(5.5, 2.0, 2.3), Color(0.13,0.23,0.32))
 	_make_prop("barrier", Vector3(13, 1.1, 7), Vector3(6.0, 2.2, 2.5), Color(0.42,0.42,0.38))
@@ -216,6 +255,8 @@ func _build_ui() -> void:
 	save_label = Label.new()
 	for label in [round_label, timer_label, score_label, hp_label, xp_label, weapon_label]:
 		label.add_theme_font_size_override("font_size", 20)
+		label.add_theme_color_override("font_color", Color(0.83, 0.94, 1.0))
+		label.add_theme_color_override("font_shadow_color", Color(0.66, 0.24, 0.84, 0.85))
 		top_left.add_child(label)
 	save_label.add_theme_font_size_override("font_size", 16)
 	top_left.add_child(save_label)
@@ -226,6 +267,12 @@ func _build_ui() -> void:
 	rank_button.size = Vector2(100, 44)
 	rank_button.pressed.connect(_show_leaderboard)
 	hud.add_child(rank_button)
+	music_button = Button.new()
+	music_button.text = "♪ 켜짐"
+	music_button.position = Vector2(1050, 18)
+	music_button.size = Vector2(100, 44)
+	music_button.pressed.connect(_toggle_music)
+	hud.add_child(music_button)
 
 	_build_touch_controls(hud)
 
@@ -237,6 +284,8 @@ func _build_ui() -> void:
 	title.text = "ZOMBIE DEFENSE 100"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color(1.0, 0.65, 0.95))
+	title.add_theme_color_override("font_shadow_color", Color(0.89, 0.31, 0.87, 0.95))
 	menu_box.add_child(title)
 	var subtitle = Label.new()
 	subtitle.text = "30초 생존 × 100라운드"
@@ -245,6 +294,15 @@ func _build_ui() -> void:
 	var start_button = Button.new()
 	start_button.text = "새 게임"
 	start_button.custom_minimum_size = Vector2(0, 48)
+	var start_style = StyleBoxFlat.new()
+	start_style.bg_color = Color(0.29, 0.16, 0.43)
+	start_style.border_color = Color(1.0, 0.48, 0.88)
+	start_style.set_border_width_all(3)
+	start_style.set_corner_radius_all(9)
+	start_style.shadow_color = Color(0.76, 0.35, 0.90, 0.7)
+	start_style.shadow_size = 12
+	start_button.add_theme_stylebox_override("normal", start_style)
+	start_button.add_theme_color_override("font_color", Color(1.0, 0.90, 1.0))
 	start_button.pressed.connect(func(): start_new_game(false))
 	menu_box.add_child(start_button)
 	continue_button = Button.new()
@@ -452,9 +510,12 @@ func _make_center_panel(parent: Control, panel_size: Vector2) -> PanelContainer:
 	panel.size = panel_size
 	panel.position = Vector2((1280.0 - panel_size.x) * 0.5, (720.0 - panel_size.y) * 0.5)
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.045, 0.075, 0.080, 0.94)
-	style.border_color = Color(0.32, 0.43, 0.42, 0.92)
+	style.bg_color = Color(0.055, 0.035, 0.10, 0.95)
+	style.border_color = Color(0.84, 0.42, 0.91)
 	style.set_border_width_all(2)
+	style.set_corner_radius_all(9)
+	style.shadow_color = Color(0.60, 0.24, 0.85, 0.60)
+	style.shadow_size = 18
 	style.set_content_margin_all(18)
 	panel.add_theme_stylebox_override("panel", style)
 	parent.add_child(panel)
@@ -462,6 +523,7 @@ func _make_center_panel(parent: Control, panel_size: Vector2) -> PanelContainer:
 
 func _show_main_menu() -> void:
 	game_active = false
+	_switch_music(false)
 	gameplay_paused = false
 	if touch_controls != null:
 		touch_controls.hide()
@@ -485,6 +547,7 @@ func start_new_game(from_checkpoint: bool) -> void:
 	upgrade_panel.hide()
 	gameplay_paused = false
 	game_active = true
+	_switch_music(true)
 	if touch_controls != null:
 		touch_controls.visible = DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
 
@@ -590,12 +653,11 @@ func get_round_spawn_target(r: int) -> int:
 	for threshold in SPECIAL_COUNT_BOOST_ROUNDS:
 		if r >= threshold:
 			multiplier *= 1.30
-	return max(1, int(round(float(base) * multiplier)))
+	return max(1, int(round(float(base) * multiplier))) * 10
 
 func get_active_zombie_cap(r: int) -> int:
-	if r >= 100:
-		return 160
-	return min(28 + int(float(r) * 0.65), 96)
+	var cap = min(150 + int(float(r) * 2.0), 240)
+	return min(cap, 160) if OS.has_feature("mobile") else cap
 
 func get_zombie_hp_multiplier(r: int) -> float:
 	return min(1.0 + float(r - 1) * 0.012, 2.20)
@@ -609,12 +671,12 @@ func get_zombie_speed_multiplier(r: int) -> float:
 func _spawn_zombie(kind: String, near_position: Vector3 = Vector3.INF) -> void:
 	var z = ZombieScript.new()
 	z.setup(self, kind, round_number)
-	add_child(z)
 	if near_position != Vector3.INF:
 		var offset = Vector3(randf_range(-2.0, 2.0), 0, randf_range(-2.0, 2.0))
-		z.global_position = Vector3(near_position.x + offset.x, 0.9, near_position.z + offset.z)
+		z.position = Vector3(near_position.x + offset.x, 0.9, near_position.z + offset.z)
 	else:
-		z.global_position = _spawn_position_outside_view()
+		z.position = _spawn_position_outside_view()
+	add_child(z)
 
 func _spawn_position_outside_view() -> Vector3:
 	var angle = randf() * TAU
@@ -703,26 +765,26 @@ func fire_weapon(shooter: Node3D, weapon_id: String) -> bool:
 			_fire_cone(start, forward, max_range, 0.34, damage, true)
 			for angle in [-0.18, -0.09, 0.0, 0.09, 0.18]:
 				var pellet_dir = forward.rotated(Vector3.UP, float(angle))
-				_make_tracer(start, start + pellet_dir * max_range, Color(1.0, 0.72, 0.30), 36.0, 0.075)
+				_make_tracer(start, _obstacle_endpoint(start, start + pellet_dir * max_range), Color(1.0, 0.72, 0.30), 36.0, 0.075)
 		"grenade":
-			var point = start + forward * max_range
+			var point = _obstacle_endpoint(start, start + forward * max_range)
 			_launch_explosive(start, point, Color(0.95, 0.62, 0.18), 4.8 * get_explosion_radius_multiplier(), damage * get_explosive_damage_multiplier(), 24.0)
 		"rocket":
-			var point2 = start + forward * max_range
+			var point2 = _obstacle_endpoint(start, start + forward * max_range)
 			_launch_explosive(start, point2, Color(1.0, 0.30, 0.08), 6.2 * get_explosion_radius_multiplier(), damage * get_explosive_damage_multiplier(), 30.0)
 		"flamethrower":
 			var flame_damage = damage * get_flame_damage_multiplier()
 			var flame_range = max_range * get_flame_range_multiplier()
 			_fire_cone(start, forward, flame_range, 0.46, flame_damage, false)
-			_make_beam(start, start + forward * flame_range, Color(1.0, 0.26, 0.03), 0.22, 0.18)
+			_make_beam(start, _obstacle_endpoint(start, start + forward * flame_range), Color(1.0, 0.26, 0.03), 0.22, 0.18)
 		"sniper":
 			var sniper_end = _fire_line(start, forward, max_range, 0.42, damage, true)
 			_make_tracer(start, sniper_end, Color(1.0, 0.88, 0.55), 70.0, 0.105)
 		"laser":
 			var laser_damage = damage * get_energy_damage_multiplier()
 			var hit_width = 1.15 if int(upgrades.get("energy", 0)) >= 4 else 0.72
-			_fire_line(start, forward, max_range, hit_width, laser_damage, true)
-			_make_beam(start, start + forward * max_range, Color(0.10, 0.62, 1.0), 0.26 if hit_width < 1.0 else 0.38, 0.34)
+			var laser_end = _fire_line(start, forward, max_range, hit_width, laser_damage, true)
+			_make_beam(start, laser_end, Color(0.10, 0.62, 1.0), 0.26 if hit_width < 1.0 else 0.38, 0.34)
 		_:
 			var penetrate = weapon_id == "rifle" and int(upgrades.get("damage", 0)) >= 4
 			var bullet_end = _fire_line(start, forward, max_range, 0.34, damage, penetrate)
@@ -737,7 +799,18 @@ func fire_weapon(shooter: Node3D, weapon_id: String) -> bool:
 			_make_tracer(start, bullet_end, Color(1.0, 0.72, 0.25), tracer_speed, tracer_width)
 	return true
 
+func _obstacle_endpoint(start: Vector3, end: Vector3) -> Vector3:
+	var query = PhysicsRayQueryParameters3D.create(start, end, 4)
+	var hit = get_world_3d().direct_space_state.intersect_ray(query)
+	return hit.get("position", end) if not hit.is_empty() else end
+
+func _line_of_sight(start: Vector3, target: Vector3) -> bool:
+	var level_target = Vector3(target.x, start.y, target.z)
+	return _obstacle_endpoint(start, level_target).distance_to(start) >= level_target.distance_to(start) - 0.1
+
 func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float, damage: float, penetrate: bool) -> Vector3:
+	var end = _obstacle_endpoint(start, start + forward * max_range)
+	var visible_range = start.distance_to(end)
 	var hits: Array = []
 	for z in get_tree().get_nodes_in_group("zombie"):
 		if not is_instance_valid(z):
@@ -745,7 +818,7 @@ func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float
 		var rel: Vector3 = z.global_position - start
 		rel.y = 0.0
 		var along = rel.dot(forward)
-		if along < 0.0 or along > max_range:
+		if along < 0.0 or along > visible_range:
 			continue
 		var closest = forward * along
 		var side = (rel - closest).length()
@@ -755,13 +828,13 @@ func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float
 	if penetrate:
 		for h in hits:
 			h["z"].take_damage(damage)
-		return start + forward * max_range
+		return end
 	if not hits.is_empty():
 		var target = hits[0]["z"]
 		var endpoint: Vector3 = target.global_position + Vector3(0, 0.55, 0)
 		target.take_damage(damage)
 		return endpoint
-	return start + forward * max_range
+	return end
 
 func _fire_cone(start: Vector3, forward: Vector3, max_range: float, sin_half_angle: float, damage: float, shotgun: bool) -> void:
 	for z in get_tree().get_nodes_in_group("zombie"):
@@ -775,7 +848,7 @@ func _fire_cone(start: Vector3, forward: Vector3, max_range: float, sin_half_ang
 		var dir = rel / dist
 		var side = abs(forward.x * dir.z - forward.z * dir.x)
 		var front = forward.dot(dir)
-		if front > 0.0 and side <= sin_half_angle:
+		if front > 0.0 and side <= sin_half_angle and _line_of_sight(start, z.global_position):
 			var applied = damage
 			if shotgun:
 				applied *= lerp(1.8, 0.75, clamp(dist / max_range, 0.0, 1.0))
@@ -1122,6 +1195,7 @@ func on_player_dead() -> void:
 
 func _end_run(win: bool) -> void:
 	game_active = false
+	_switch_music(false)
 	gameplay_paused = false
 	if touch_controls != null:
 		touch_controls.hide()

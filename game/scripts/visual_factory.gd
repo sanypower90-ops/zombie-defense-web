@@ -23,6 +23,16 @@ static func box(parent: Node3D, pos: Vector3, size: Vector3, color: Color, metal
 	parent.add_child(node)
 	return node
 
+static func neon_box(parent: Node3D, pos: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
+	var node = box(parent, pos, size, color)
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color * 2.5
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	node.material_override = mat
+	return node
+
 static func sphere(parent: Node3D, pos: Vector3, radius: float, color: Color) -> MeshInstance3D:
 	var node = MeshInstance3D.new()
 	var shape = SphereMesh.new()

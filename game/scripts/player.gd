@@ -33,6 +33,7 @@ var speed_buff_until = 0.0
 var damage_buff_until = 0.0
 var armor_buff_until = 0.0
 var invuln_until = 0.0
+var hurt_cooldown_until = 0.0
 var weapon_mount: Node3D
 var visual_root: Node3D
 var visual_weapon_id = ""
@@ -41,6 +42,7 @@ var recoil_left = 0.0
 
 func setup(p_game: Node) -> void:
 	game = p_game
+	hurt_cooldown_until = Time.get_ticks_msec() / 1000.0 + 2.0
 	_build_visual()
 
 func _build_visual() -> void:
@@ -323,11 +325,13 @@ func cycle_weapon(direction: int) -> void:
 
 func apply_damage(amount: float) -> void:
 	var now = Time.get_ticks_msec() / 1000.0
-	if now < invuln_until:
+	if now < invuln_until or now < hurt_cooldown_until:
 		return
 	var final_amount = amount
 	if now < armor_buff_until:
 		final_amount *= 0.5
+	# A crowd can touch the player at once; count at most one contact in this window.
+	hurt_cooldown_until = now + 1.5
 	hp = max(0.0, hp - final_amount)
 	if hp <= 0.0 and game != null:
 		game.on_player_dead()
