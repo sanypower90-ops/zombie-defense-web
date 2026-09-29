@@ -17,6 +17,12 @@ var camera: Camera3D
 var menu_music: AudioStreamPlayer
 var gameplay_music: AudioStreamPlayer
 var music_button: Button
+var game_menu_button: Button
+var game_menu_panel: PanelContainer
+var pause_button: Button
+var sfx_streams: Dictionary = {}
+var sfx_players: Array[AudioStreamPlayer] = []
+var sfx_cursor := 0
 var music_enabled = true
 var save_manager
 var leaderboard
@@ -94,6 +100,11 @@ var art_title: Label
 var art_image: TextureRect
 var touch_controls: Control
 var touch_weapon_buttons: Array[Button] = []
+var touch_left_zone: PanelContainer
+var hud_top_left: VBoxContainer
+var hud_rank_button: Button
+var center_panels: Array[PanelContainer] = []
+var center_panel_sizes: Array[Vector2] = []
 
 var _pending_rank_check = false
 var _result_was_win = false
@@ -102,6 +113,7 @@ var _leaderboard_resume_after_close = false
 func _ready() -> void:
 	randomize()
 	_build_music()
+	_build_sfx()
 	save_manager = SaveManagerScript.new()
 	add_child(save_manager)
 	leaderboard = LeaderboardScript.new()
@@ -111,6 +123,8 @@ func _ready() -> void:
 
 	_build_world()
 	_build_ui()
+	get_viewport().size_changed.connect(_on_viewport_resized)
+	call_deferred("_on_viewport_resized")
 	_show_main_menu()
 
 func _build_music() -> void:
@@ -145,19 +159,104 @@ func _toggle_music() -> void:
 		menu_music.stop()
 		gameplay_music.stop()
 
+func _build_sfx() -> void:
+	var settings = {
+		"pistol": Vector3(0.12, 160.0, 0.50),
+		"shotgun": Vector3(0.32, 90.0, 0.95),
+		"smg": Vector3(0.09, 230.0, 0.48),
+		"rifle": Vector3(0.15, 130.0, 0.72),
+		"lmg": Vector3(0.19, 80.0, 0.82),
+		"grenade": Vector3(0.30, 65.0, 0.74),
+		"flamethrower": Vector3(0.16, 45.0, 0.26),
+		"sniper": Vector3(0.39, 115.0, 0.95),
+		"rocket": Vector3(0.42, 55.0, 0.88),
+		"laser": Vector3(0.48, 480.0, 0.50),
+		"zombie": Vector3(0.28, 95.0, 0.78)
+	}
+	for sound_id in settings:
+		sfx_streams[sound_id] = _make_sfx_stream(str(sound_id), settings[sound_id])
+	for i in range(16):
+		var voice = AudioStreamPlayer.new()
+		voice.volume_db = -12.0
+		add_child(voice)
+		sfx_players.append(voice)
+
+func _make_sfx_stream(sound_id: String, shape: Vector3) -> AudioStreamWAV:
+	var sample_rate := 22050
+	var sample_count := int(shape.x * sample_rate)
+	var pcm = PackedByteArray()
+	pcm.resize(sample_count * 2)
+	var rng = RandomNumberGenerator.new()
+	rng.seed = sound_id.hash()
+	var phase := 0.0
+	for i in range(sample_count):
+		var t = float(i) / float(sample_rate)
+		var progress = float(i) / float(sample_count)
+		var envelope = pow(1.0 - progress, 2.0) * min(t * 220.0, 1.0)
+		var noise = rng.randf_range(-1.0, 1.0)
+		var frequency = shape.y * (1.0 - progress * 0.55)
+		if sound_id == "laser":
+			frequency = shape.y * (1.0 + progress * 1.8)
+		elif sound_id == "flamethrower":
+			frequency = shape.y * (1.0 + sin(t * 30.0) * 0.12)
+		phase += TAU * frequency / float(sample_rate)
+		var tone = sin(phase) * (1.0 - shape.z)
+		var sample = (tone + noise * shape.z) * envelope
+		if sound_id == "zombie":
+			sample += sin(phase * 0.44) * envelope * 0.38
+		elif sound_id == "shotgun" or sound_id == "rocket":
+			sample += sin(phase * 0.35) * envelope * 0.32
+		pcm.encode_s16(i * 2, int(clamp(sample * 18000.0, -32767.0, 32767.0)))
+	var stream = AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = sample_rate
+	stream.stereo = false
+	stream.data = pcm
+	return stream
+
+func _play_sfx(sound_id: String, pitch: float = 1.0) -> void:
+	if sfx_players.is_empty() or not sfx_streams.has(sound_id):
+		return
+	var voice = sfx_players[sfx_cursor]
+	sfx_cursor = (sfx_cursor + 1) % sfx_players.size()
+	voice.stop()
+	voice.stream = sfx_streams[sound_id]
+	voice.pitch_scale = pitch
+	voice.play()
+
+func play_weapon_sfx(weapon_id: String) -> void:
+	_play_sfx(weapon_id)
+
+func play_zombie_death_sfx(kind: String) -> void:
+	var pitch = 1.3 if kind == "runner" or kind == "leaper" else (0.68 if kind == "boss" or kind == "final_boss" else 1.0)
+	_play_sfx("zombie", pitch)
+
+func _toggle_game_menu() -> void:
+	if not game_active or upgrade_panel.visible or leaderboard_panel.visible:
+		return
+	game_menu_panel.visible = not game_menu_panel.visible
+	if not game_menu_panel.visible and gameplay_paused:
+		game_menu_panel.show()
+
+func _toggle_pause() -> void:
+	if not game_active:
+		return
+	gameplay_paused = not gameplay_paused
+	pause_button.text = "계속하기" if gameplay_paused else "일시정지"
+	if not gameplay_paused:
+		game_menu_panel.hide()
+
 func _physics_process(delta: float) -> void:
 	if not can_world_update():
 		return
 	round_time_left -= delta
-	_update_camera(delta)
+	_update_camera()
 	_handle_spawning(delta)
 	_update_hud()
 	if round_time_left <= 0.0:
 		_finish_round()
 
-func _process(delta: float) -> void:
-	if game_active and camera != null and player != null and not gameplay_paused:
-		_update_camera(delta)
+func _process(_delta: float) -> void:
 	_update_hud()
 
 func can_world_update() -> bool:
@@ -243,9 +342,9 @@ func _build_ui() -> void:
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	canvas.add_child(hud)
 
-	var top_left = VBoxContainer.new()
-	top_left.position = Vector2(18, 16)
-	hud.add_child(top_left)
+	hud_top_left = VBoxContainer.new()
+	hud_top_left.position = Vector2(18, 16)
+	hud.add_child(hud_top_left)
 	round_label = Label.new()
 	timer_label = Label.new()
 	score_label = Label.new()
@@ -257,22 +356,28 @@ func _build_ui() -> void:
 		label.add_theme_font_size_override("font_size", 20)
 		label.add_theme_color_override("font_color", Color(0.83, 0.94, 1.0))
 		label.add_theme_color_override("font_shadow_color", Color(0.66, 0.24, 0.84, 0.85))
-		top_left.add_child(label)
+		hud_top_left.add_child(label)
 	save_label.add_theme_font_size_override("font_size", 16)
-	top_left.add_child(save_label)
+	hud_top_left.add_child(save_label)
 
-	var rank_button = Button.new()
-	rank_button.text = "TOP 10"
-	rank_button.position = Vector2(1160, 18)
-	rank_button.size = Vector2(100, 44)
-	rank_button.pressed.connect(_show_leaderboard)
-	hud.add_child(rank_button)
+	hud_rank_button = Button.new()
+	hud_rank_button.text = "TOP 10"
+	hud_rank_button.position = Vector2(1160, 18)
+	hud_rank_button.size = Vector2(100, 44)
+	hud_rank_button.pressed.connect(_show_leaderboard)
+	hud.add_child(hud_rank_button)
 	music_button = Button.new()
 	music_button.text = "♪ 켜짐"
 	music_button.position = Vector2(1050, 18)
 	music_button.size = Vector2(100, 44)
 	music_button.pressed.connect(_toggle_music)
 	hud.add_child(music_button)
+	game_menu_button = Button.new()
+	game_menu_button.text = "☰ 메뉴"
+	game_menu_button.size = Vector2(116, 54)
+	game_menu_button.pressed.connect(_toggle_game_menu)
+	hud.add_child(game_menu_button)
+	game_menu_button.hide()
 
 	_build_touch_controls(hud)
 
@@ -321,10 +426,35 @@ func _build_ui() -> void:
 	concept_button.pressed.connect(_show_art_panel)
 	menu_box.add_child(concept_button)
 	var controls = Label.new()
-	controls.text = "PC: WASD/방향키 이동 · 마우스 조준 · 좌클릭 사격 · 1/2/3 무기 · R 재장전\n모바일: 왼쪽 드래그 이동 · 오른쪽 드래그 조준/자동사격"
+	controls.text = "PC: WASD/방향키 이동 · 마우스 조준 · 좌클릭 사격 · 1/2/3 무기 · R 재장전\n모바일: 왼쪽 원형 버튼 하나로 이동·조준·자동사격"
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_box.add_child(controls)
+	game_menu_panel = _make_center_panel(hud, Vector2(430, 285))
+	var game_menu_box = VBoxContainer.new()
+	game_menu_box.add_theme_constant_override("separation", 12)
+	game_menu_panel.add_child(game_menu_box)
+	var game_menu_title = Label.new()
+	game_menu_title.text = "게임 메뉴"
+	game_menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	game_menu_title.add_theme_font_size_override("font_size", 28)
+	game_menu_box.add_child(game_menu_title)
+	var home_button = Button.new()
+	home_button.text = "홈 바로가기"
+	home_button.custom_minimum_size = Vector2(0, 56)
+	home_button.pressed.connect(_show_main_menu)
+	game_menu_box.add_child(home_button)
+	pause_button = Button.new()
+	pause_button.text = "일시정지"
+	pause_button.custom_minimum_size = Vector2(0, 56)
+	pause_button.pressed.connect(_toggle_pause)
+	game_menu_box.add_child(pause_button)
+	var restart_button = Button.new()
+	restart_button.text = "다시하기"
+	restart_button.custom_minimum_size = Vector2(0, 56)
+	restart_button.pressed.connect(func(): start_new_game(false))
+	game_menu_box.add_child(restart_button)
+	game_menu_panel.hide()
 
 	upgrade_panel = _make_center_panel(hud, Vector2(690, 340))
 	var upgrade_box = VBoxContainer.new()
@@ -455,10 +585,8 @@ func _build_touch_controls(hud: Control) -> void:
 	touch_controls.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(touch_controls)
 
-	var left_zone = _make_touch_zone("이동\n드래그", Vector2(26, 478), Vector2(216, 216))
-	touch_controls.add_child(left_zone)
-	var right_zone = _make_touch_zone("조준 · 사격\n드래그", Vector2(1038, 478), Vector2(216, 216))
-	touch_controls.add_child(right_zone)
+	touch_left_zone = _make_touch_zone("이동 · 조준\n자동 사격", Vector2(26, 478), Vector2(280, 280))
+	touch_controls.add_child(touch_left_zone)
 
 	var button_names = ["1 기본", "2 특수", "3 특수", "R 재장전"]
 	for i in range(button_names.size()):
@@ -476,6 +604,51 @@ func _build_touch_controls(hud: Control) -> void:
 
 	# On phones/tablets the overlay is shown automatically. Desktop keeps the screen clean.
 	touch_controls.visible = DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
+
+func _on_viewport_resized() -> void:
+	_layout_ui(get_viewport().get_visible_rect().size, DisplayServer.is_touchscreen_available() or OS.has_feature("mobile"))
+
+func _layout_ui(view_size: Vector2, mobile: bool) -> void:
+	if menu_panel == null or view_size.x <= 0.0 or view_size.y <= 0.0:
+		return
+	var portrait = view_size.y > view_size.x * 1.05
+	var top_scale = 2.8 if mobile and portrait else (1.3 if mobile else 1.0)
+	hud_top_left.scale = Vector2.ONE * top_scale
+	hud_top_left.position = Vector2(18, 16)
+	var menu_button_scale = 1.7 if mobile and portrait else (1.15 if mobile else 1.0)
+	hud_rank_button.scale = Vector2.ONE * menu_button_scale
+	music_button.scale = Vector2.ONE * menu_button_scale
+	hud_rank_button.position = Vector2(view_size.x - 18.0 - 100.0 * menu_button_scale, 18.0)
+	music_button.position = Vector2(view_size.x - 28.0 - 200.0 * menu_button_scale, 18.0)
+	game_menu_button.scale = Vector2.ONE * menu_button_scale
+	game_menu_button.position = Vector2(view_size.x - 18.0 - 116.0 * menu_button_scale, 18.0)
+	if mobile and game_active:
+		hud_rank_button.hide()
+		music_button.hide()
+	else:
+		hud_rank_button.show()
+		music_button.show()
+	for i in range(center_panels.size()):
+		var panel = center_panels[i]
+		panel.size = center_panel_sizes[i]
+		var preferred = 2.0 if mobile and portrait else (1.2 if mobile else 1.0)
+		var panel_scale = min(preferred, (view_size.x - 40.0) / panel.size.x, (view_size.y - 40.0) / panel.size.y)
+		panel_scale = max(panel_scale, 0.1)
+		panel.scale = Vector2.ONE * panel_scale
+		panel.position = (view_size - panel.size * panel_scale) * 0.5
+	if touch_left_zone == null:
+		return
+	var stick_scale = 1.45 if mobile and portrait else (1.15 if mobile else 1.0)
+	var stick_size = 280.0 * stick_scale
+	touch_left_zone.scale = Vector2.ONE * stick_scale
+	touch_left_zone.position = Vector2(32.0, view_size.y - stick_size - 36.0)
+	var weapon_scale = 1.85 if mobile and portrait else (1.25 if mobile else 1.0)
+	var row_width = (4.0 * 100.0 + 3.0 * 8.0) * weapon_scale
+	var row_y = view_size.y - stick_size - 54.0 * weapon_scale - 58.0
+	for i in range(touch_weapon_buttons.size()):
+		var button = touch_weapon_buttons[i]
+		button.scale = Vector2.ONE * weapon_scale
+		button.position = Vector2((view_size.x - row_width) * 0.5 + i * 108.0 * weapon_scale, row_y)
 
 func _make_touch_zone(text: String, position: Vector2, size: Vector2) -> PanelContainer:
 	var panel = PanelContainer.new()
@@ -519,10 +692,15 @@ func _make_center_panel(parent: Control, panel_size: Vector2) -> PanelContainer:
 	style.set_content_margin_all(18)
 	panel.add_theme_stylebox_override("panel", style)
 	parent.add_child(panel)
+	center_panels.append(panel)
+	center_panel_sizes.append(panel_size)
 	return panel
 
 func _show_main_menu() -> void:
 	game_active = false
+	game_menu_button.hide()
+	game_menu_panel.hide()
+	_on_viewport_resized()
 	_switch_music(false)
 	gameplay_paused = false
 	if touch_controls != null:
@@ -547,6 +725,10 @@ func start_new_game(from_checkpoint: bool) -> void:
 	upgrade_panel.hide()
 	gameplay_paused = false
 	game_active = true
+	game_menu_button.show()
+	game_menu_panel.hide()
+	pause_button.text = "일시정지"
+	_on_viewport_resized()
 	_switch_music(true)
 	if touch_controls != null:
 		touch_controls.visible = DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
@@ -1195,6 +1377,9 @@ func on_player_dead() -> void:
 
 func _end_run(win: bool) -> void:
 	game_active = false
+	game_menu_button.hide()
+	game_menu_panel.hide()
+	_on_viewport_resized()
 	_switch_music(false)
 	gameplay_paused = false
 	if touch_controls != null:
@@ -1284,12 +1469,18 @@ func _on_submit_done(ok: bool, message: String) -> void:
 		leaderboard_panel.show()
 		leaderboard.fetch_top10()
 
-func _update_camera(delta: float) -> void:
+func _update_camera() -> void:
 	if camera == null or player == null:
 		return
-	var desired = player.global_position + Vector3(0, 23.0, 17.0)
-	camera.global_position = camera.global_position.lerp(desired, clamp(delta * 6.0, 0.0, 1.0))
-	camera.look_at(player.global_position, Vector3.UP)
+	# Keep orientation fixed and the frame still inside a central dead zone.
+	var focus = camera.global_position - Vector3(0, 23.0, 17.0)
+	var gap = player.global_position - focus
+	var deadzone = 3.0
+	if abs(gap.x) > deadzone:
+		focus.x += gap.x - sign(gap.x) * deadzone
+	if abs(gap.z) > deadzone:
+		focus.z += gap.z - sign(gap.z) * deadzone
+	camera.global_position = focus + Vector3(0, 23.0, 17.0)
 
 func _update_hud() -> void:
 	if round_label == null:
