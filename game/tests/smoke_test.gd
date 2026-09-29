@@ -25,6 +25,59 @@ func _run() -> void:
 		push_error("The menu or gameplay BGM is missing")
 		quit(1)
 		return
+	if ProjectSettings.get_setting("display/window/stretch/aspect") != "expand":
+		push_error("The mobile viewport is still letterboxed")
+		quit(1)
+		return
+	if not is_equal_approx(game.player.visual_root.scale.x, 1.4):
+		push_error("Player is not 40 percent larger")
+		quit(1)
+		return
+	game._layout_ui(Vector2(1280, 2275), true)
+	if game.menu_panel.position.y < 500.0 or game.touch_left_zone.position.y < 1800.0 or game.touch_left_zone.size.x * game.touch_left_zone.scale.x < 400.0:
+		push_error("Portrait mobile UI is not positioned for the full screen")
+		quit(1)
+		return
+	game._layout_ui(Vector2(1280, 720), true)
+	if game.menu_panel.position.y < 0.0 or game.touch_left_zone.position.y < 300.0:
+		push_error("Landscape mobile UI is outside the screen")
+		quit(1)
+		return
+	if game.touch_controls.get_child_count() != 5:
+		push_error("Touch controls still contain a separate firing stick")
+		quit(1)
+		return
+	game.game_menu_button.pressed.emit()
+	if not game.game_menu_panel.visible:
+		push_error("The in-game menu did not open")
+		quit(1)
+		return
+	game.pause_button.pressed.emit()
+	if not game.gameplay_paused:
+		push_error("The pause button did not pause the game")
+		quit(1)
+		return
+	game.pause_button.pressed.emit()
+	if game.gameplay_paused:
+		push_error("The resume button did not resume the game")
+		quit(1)
+		return
+	var fixed_rotation = game.camera.rotation
+	game.player.global_position.x += 1.0
+	game._update_camera()
+	if game.camera.rotation != fixed_rotation:
+		push_error("The camera rotates with player movement")
+		quit(1)
+		return
+	for weapon_id in game.weapon_data:
+		if not game.sfx_streams.has(weapon_id):
+			push_error("Missing weapon sound: " + weapon_id)
+			quit(1)
+			return
+	if not game.sfx_streams.has("zombie"):
+		push_error("Missing zombie death sound")
+		quit(1)
+		return
 	game._spawn_zombie("walker")
 	await process_frame
 	if game.player.hp < game.player.max_hp:
@@ -59,8 +112,7 @@ func _run() -> void:
 		push_error("A zombie behind the car was hit through cover")
 		quit(1)
 		return
-	var viewport_size: Vector2 = game.player.get_viewport().get_visible_rect().size
-	var touch_start := Vector2(viewport_size.x * 0.1, viewport_size.y * 0.8)
+	var touch_start: Vector2 = game.touch_left_zone.get_global_rect().get_center()
 	var touch = InputEventScreenTouch.new()
 	touch.index = 1
 	touch.position = touch_start
@@ -70,8 +122,8 @@ func _run() -> void:
 	drag.index = 1
 	drag.position = touch_start + Vector2(100, 0)
 	game.player._input(drag)
-	if game.player.touch_move_vector.x <= 0.0:
-		push_error("Touch drag did not produce movement input")
+	if game.player.touch_move_vector.x <= 0.0 or not game.player.touch_firing:
+		push_error("One touch drag did not produce movement and firing input")
 		quit(1)
 		return
 	var old_x: float = game.player.global_position.x
@@ -108,7 +160,7 @@ func _run() -> void:
 		quit(1)
 		return
 	zombie_visual.free()
-	print("SMOKE_TEST_PASS: 30-second round, 10x zombies, protected spawn, hit cooldown, cover, item label, BGM")
+	print("SMOKE_TEST_PASS: mobile full screen, 40% player scale, one-stick control, game menu, fixed camera, weapon/zombie SFX, 30-second round, 10x zombies, protected spawn, hit cooldown, cover, item label, BGM")
 	game.queue_free()
 	await process_frame
 	quit(0)
