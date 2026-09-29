@@ -603,10 +603,14 @@ func _build_touch_controls(hud: Control) -> void:
 		touch_weapon_buttons.append(b)
 
 	# On phones/tablets the overlay is shown automatically. Desktop keeps the screen clean.
-	touch_controls.visible = DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
+	touch_controls.visible = _is_mobile_layout()
 
 func _on_viewport_resized() -> void:
-	_layout_ui(get_viewport().get_visible_rect().size, DisplayServer.is_touchscreen_available() or OS.has_feature("mobile"))
+	_layout_ui(get_viewport().get_visible_rect().size, _is_mobile_layout())
+
+func _is_mobile_layout() -> bool:
+	var screen_size = get_viewport().get_visible_rect().size
+	return DisplayServer.is_touchscreen_available() or OS.has_feature("mobile") or screen_size.y > screen_size.x * 1.05
 
 func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	if menu_panel == null or view_size.x <= 0.0 or view_size.y <= 0.0:
@@ -731,7 +735,7 @@ func start_new_game(from_checkpoint: bool) -> void:
 	_on_viewport_resized()
 	_switch_music(true)
 	if touch_controls != null:
-		touch_controls.visible = DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
+		touch_controls.visible = _is_mobile_layout()
 
 	score = 0
 	kills = 0
