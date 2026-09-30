@@ -28,8 +28,7 @@ Godot 4.7.2 기반의 **3D 쿼터뷰 좀비 슈팅 디펜스** 프로젝트입�
 - 라운드와 점수는 **시작하기**를 누를 때 항상 1라운드·0점으로 초기화됩니다. 보관 아이템과 남은 특수무기는 같은 기기에 저장되어 다음 게임에서 다시 사용할 수 있습니다. 체크포인트 이어하기는 없습니다.
 - 레벨업 시 3개 강화 중 1개 선택. 동일 계열 4단계에서 진화. 자석 계열은 아이템 자동 흡수 반경을 넓히고 최종 진화 시 경험치 +25%.
 - 게임 종료 결과 화면에서 **랭킹 등록**을 누른 경우에만 Top 10 확인 후 닉네임 입력창 표시.
-- Supabase 설정 전에는 브라우저 로컬 Top 10으로 동작.
-- Supabase 설정 후 글로벌 Top 10으로 전환.
+- Supabase 공용 데이터베이스를 사용해 모든 플레이어가 같은 Top 10을 봅니다. 연결이 끊어지면 로컬 랭킹을 대신 보여주지 않고 오류를 표시합니다.
 
 ## 조작
 
@@ -77,14 +76,9 @@ Web export에서는 `user://`가 브라우저 IndexedDB를 사용합니다. 로�
 
 ## 글로벌 랭킹·온라인 계정 준비 상태
 
-1. [Supabase 대시보드](https://supabase.com/dashboard)에서 새 프로젝트를 생성합니다.
-2. **SQL Editor**에서 `supabase/schema.sql` 전체를 실행합니다. 이 SQL은 공용 랭킹과 개인 저장 테이블의 구조를 만듭니다.
-3. **Project Settings → API**에서 Project URL과 **anon/publishable key**를 찾습니다. `config/leaderboard_config.gd`에 아래 두 값을 입력합니다:
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
-4. 변경 파일을 GitHub에 올리면 Actions에서 다시 Web export하여 랭킹을 배포합니다.
+공용 랭킹용 Supabase 프로젝트의 `leaderboard` 표와 RLS 정책은 `supabase/schema.sql`로 설정했고, 공개용 publishable key를 `config/leaderboard_config.gd`에 연결했습니다. 모든 플레이어는 같은 서버의 Top 10을 조회하고 게임 종료 후 점수를 등록합니다. 온라인 연결에 실패하면 오류를 표시하며 기기별 로컬 랭킹으로 바꾸지 않습니다.
 
-현재 Supabase URL과 공개용 키가 없으므로 글로벌 랭킹은 **아직 활성화되지 않았습니다**. GitHub Pages는 정적 파일 서비스이므로 비밀번호를 검증하거나 개인 데이터를 안전하게 보관하는 서버가 될 수 없습니다. `내 이름 설정`은 로그인 계정이 아니라 **이 기기에만 저장되는 이름**입니다.
+GitHub Pages는 정적 파일 서비스이므로 비밀번호를 검증하거나 개인 데이터를 안전하게 보관하는 서버가 될 수 없습니다. `내 이름 설정`은 로그인 계정이 아니라 **이 기기에만 저장되는 이름**입니다.
 
 이메일 없이 임의의 아이디와 비밀번호로 가입하려면 **별도의 계정 서버**가 필요합니다. Supabase의 기본 비밀번호 인증은 이메일 또는 전화번호 기반입니다. 따라서 현재 게임에서는 온라인 가입 버튼을 제공하지 않습니다. 계정 서버를 마련하기 전까지 아이템은 로그인 없이 로컬 저장으로 사용합니다. [GitHub Pages 설명](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages), [Supabase 비밀번호 인증](https://supabase.com/docs/guides/auth/passwords)
 
