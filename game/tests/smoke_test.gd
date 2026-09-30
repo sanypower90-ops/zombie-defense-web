@@ -34,12 +34,16 @@ func _run() -> void:
 		quit(1)
 		return
 	game._layout_ui(Vector2(1280, 2275), true)
-	if game.menu_panel.position.y < 500.0 or game.touch_left_zone.position.y < 1800.0 or game.touch_left_zone.size.x * game.touch_left_zone.scale.x < 400.0:
+	if game.menu_panel.position.y < 0.0 or game.touch_hit_zone.position.y < 1800.0 or abs(game.touch_hit_zone.get_global_rect().get_center().x - 640.0) > 1.0:
 		push_error("Portrait mobile UI is not positioned for the full screen")
 		quit(1)
 		return
+	if game.touch_left_zone.size.x * game.touch_left_zone.scale.x > game.touch_hit_zone.size.x * 0.31:
+		push_error("Joystick visual is not 70 percent smaller")
+		quit(1)
+		return
 	game._layout_ui(Vector2(1280, 720), true)
-	if game.menu_panel.position.y < 0.0 or game.touch_left_zone.position.y < 300.0:
+	if game.menu_panel.position.y < 0.0 or game.touch_hit_zone.position.y < 300.0:
 		push_error("Landscape mobile UI is outside the screen")
 		quit(1)
 		return
@@ -113,7 +117,7 @@ func _run() -> void:
 		push_error("A zombie behind the car was hit through cover")
 		quit(1)
 		return
-	var touch_start: Vector2 = game.touch_left_zone.get_global_rect().get_center()
+	var touch_start: Vector2 = game.touch_hit_zone.get_global_rect().get_center()
 	var touch = InputEventScreenTouch.new()
 	touch.index = 1
 	touch.position = touch_start
@@ -148,6 +152,48 @@ func _run() -> void:
 		push_error("Pickup name label is missing")
 		quit(1)
 		return
+	game.player.select_base_weapon("sword")
+	if game.player.current_weapon_id() != "sword" or game.get_weapon_data("sword")["damage"] != game.get_weapon_data("pistol")["damage"] * 0.3:
+		push_error("The base sword has the wrong damage or cannot be selected")
+		quit(1)
+		return
+	game.player.select_base_weapon("fist")
+	if game.get_weapon_data("fist")["damage"] != game.get_weapon_data("pistol")["damage"] * 0.7:
+		push_error("The base fist damage is wrong")
+		quit(1)
+		return
+	game.player.store_item("heal")
+	var checkpoint = game.player.get_save_data()
+	game.player.item_inventory.clear()
+	game.player.restore_save_data(checkpoint)
+	if not game.player.use_stored_item("heal") or game.player.item_inventory.get("heal", 0) != 0:
+		push_error("Stored items were not saved and usable")
+		quit(1)
+		return
+	for id in ["auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile"]:
+		for _i in range(5): game._apply_upgrade(id)
+		if game.upgrades[id] != 5:
+			push_error("Automatic weapon did not reach level 5: " + id)
+			quit(1)
+			return
+	game._apply_upgrade("clone")
+	game._apply_upgrade("clone")
+	if game.clone_visuals.size() != 2:
+		push_error("Clone upgrade did not keep 3 total characters")
+		quit(1)
+		return
+	game._show_character_panel()
+	if not game.character_panel.visible:
+		push_error("The character screen did not open")
+		quit(1)
+		return
+	game._close_character_panel()
+	game._show_art_panel()
+	if not game.art_panel.visible:
+		push_error("The concept sheet did not open")
+		quit(1)
+		return
+	game._close_art_panel()
 	var player_visual: Node3D = game.player.visual_root
 	VisualFactory.animate_player(player_visual, PI * 0.5, 1.0, 1.0)
 	if absf(player_visual.get_node("LegL").rotation.x) < 0.3 or player_visual.get_node("WeaponMount").position.z < -0.25:
