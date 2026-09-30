@@ -41,3 +41,29 @@ with check (
   and max_round between 1 and 100
   and kills between 0 and 1000000
 );
+
+-- Each account can read and replace only its own game progress.
+-- Passwords are managed by Supabase Auth and are never stored in this table.
+create table if not exists public.player_saves (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  checkpoint jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.player_saves enable row level security;
+revoke all on table public.player_saves from anon, authenticated;
+grant select, insert, update on table public.player_saves to authenticated;
+
+drop policy if exists "player_saves_owner_read" on public.player_saves;
+create policy "player_saves_owner_read" on public.player_saves
+for select to authenticated using ((select auth.uid()) = user_id);
+
+drop policy if exists "player_saves_owner_insert" on public.player_saves;
+create policy "player_saves_owner_insert" on public.player_saves
+for insert to authenticated with check ((select auth.uid()) = user_id);
+
+drop policy if exists "player_saves_owner_update" on public.player_saves;
+create policy "player_saves_owner_update" on public.player_saves
+for update to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
