@@ -15,6 +15,8 @@ var reload_left = 0.0
 
 # Oldest -> newest. Each entry: {"id": String, "ammo": int}
 var special_slots: Array = []
+var base_weapon_id := "pistol"
+var item_inventory: Dictionary = {}
 # 0 = base gun, 1/2 = special slot
 var selected_slot = 0
 var next_fire_time = 0.0
@@ -35,6 +37,7 @@ var hurt_cooldown_until = 0.0
 var weapon_mount: Node3D
 var visual_root: Node3D
 var visual_weapon_id = ""
+var weapon_name_label: Label3D
 var walk_phase = 0.0
 var recoil_left = 0.0
 
@@ -59,6 +62,14 @@ func _build_visual() -> void:
 	weapon_mount = visual_root.get_node("WeaponMount")
 	visual_weapon_id = "pistol"
 	VisualFactory.set_player_weapon(weapon_mount, visual_weapon_id)
+	weapon_name_label = Label3D.new()
+	weapon_name_label.position = Vector3(0, 2.05, 0)
+	weapon_name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	weapon_name_label.no_depth_test = true
+	weapon_name_label.font_size = 56
+	weapon_name_label.pixel_size = 0.007
+	weapon_name_label.modulate = Color(1.0, 0.91, 0.48)
+	add_child(weapon_name_label)
 
 func _physics_process(delta: float) -> void:
 	if game == null:
@@ -70,6 +81,7 @@ func _physics_process(delta: float) -> void:
 	_update_reload(delta)
 	_handle_selection_keys()
 	var weapon_id = current_weapon_id()
+	weapon_name_label.text = str(game.get_weapon_data(weapon_id).get("name", weapon_id))
 	if weapon_id != visual_weapon_id and weapon_mount != null:
 		visual_weapon_id = weapon_id
 		VisualFactory.set_player_weapon(weapon_mount, weapon_id)
@@ -107,18 +119,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			cycle_weapon(1)
 
 func _begin_touch(index: int, position: Vector2) -> void:
-	if game.touch_left_zone == null or not game.touch_left_zone.get_global_rect().has_point(position):
+	if game.touch_hit_zone == null or not game.touch_hit_zone.get_global_rect().has_point(position):
 		return
 	if move_touch_id < 0:
 		move_touch_id = index
 		move_touch_origin = position
 		touch_move_vector = Vector2.ZERO
-		touch_firing = false
+		touch_firing = true
 
 func _update_touch(index: int, position: Vector2) -> void:
 	if index == move_touch_id:
 		touch_move_vector = _stick_vector(move_touch_origin, position)
-		touch_firing = touch_move_vector.length() >= TOUCH_STICK_DEADZONE
+		touch_firing = true
 
 func _release_touch(index: int) -> void:
 	if index == move_touch_id:
@@ -164,6 +176,11 @@ func _aim_at_pointer() -> void:
 	# The movement stick also sets the firing direction.
 	if move_touch_id >= 0:
 		var world_dir = Vector3(touch_move_vector.x, 0.0, touch_move_vector.y)
+		if world_dir.length_squared() <= 0.001:
+			var nearby = game.find_nearest_zombie(global_position, float(game.get_weapon_data(current_weapon_id()).get("range", 20.0)))
+			if nearby != null:
+				world_dir = nearby.global_position - global_position
+				world_dir.y = 0.0
 		if world_dir.length_squared() > 0.001:
 			var target = global_position + world_dir.normalized() * 8.0
 			target.y = global_position.y
@@ -194,6 +211,9 @@ func _handle_selection_keys() -> void:
 		selected_slot = 2
 	if Input.is_physical_key_pressed(KEY_R):
 		begin_reload()
+	if Input.is_physical_key_pressed(KEY_4): base_weapon_id = "sword"; selected_slot = 0
+	if Input.is_physical_key_pressed(KEY_5): base_weapon_id = "fist"; selected_slot = 0
+	if Input.is_physical_key_pressed(KEY_1): base_weapon_id = "pistol"
 
 func _handle_fire() -> void:
 	var mouse_fire = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
@@ -222,7 +242,7 @@ func _handle_fire() -> void:
 		_consume_current_ammo(1)
 
 func begin_reload() -> void:
-	if selected_slot != 0 or reloading or base_mag >= base_mag_max:
+	if selected_slot != 0 or base_weapon_id != "pistol" or reloading or base_mag >= base_mag_max:
 		return
 	reloading = true
 	reload_left = 1.0
@@ -237,7 +257,7 @@ func _update_reload(delta: float) -> void:
 
 func current_weapon_id() -> String:
 	if selected_slot <= 0 or special_slots.is_empty():
-		return "pistol"
+		return base_weapon_id
 	var idx = selected_slot - 1
 	if idx < 0 or idx >= special_slots.size():
 		selected_slot = 0
@@ -254,6 +274,8 @@ func current_special_ammo() -> int:
 
 func _consume_current_ammo(amount: int) -> void:
 	if selected_slot == 0:
+		if base_weapon_id != "pistol":
+			return
 		base_mag = max(base_mag - amount, 0)
 		if base_mag <= 0:
 			begin_reload()
@@ -274,6 +296,7 @@ func _remove_empty_current_special() -> void:
 		special_slots.remove_at(idx)
 	# A spent pickup always returns to the unlimited basic pistol.
 	selected_slot = 0
+	base_weapon_id = "pistol"
 
 func acquire_weapon(weapon_id: String) -> void:
 	var data: Dictionary = game.get_weapon_data(weapon_id)
@@ -301,6 +324,21 @@ func select_weapon_slot(slot: int) -> void:
 		selected_slot = 1
 	elif slot == 2 and special_slots.size() >= 2:
 		selected_slot = 2
+
+func select_base_weapon(id: String) -> void:
+	if id in ["pistol", "sword", "fist"]:
+		base_weapon_id = id
+		selected_slot = 0
+
+func store_item(id: String) -> void:
+	item_inventory[id] = min(int(item_inventory.get(id, 0)) + 1, 99)
+
+func use_stored_item(id: String) -> bool:
+	if int(item_inventory.get(id, 0)) <= 0:
+		return false
+	item_inventory[id] = int(item_inventory[id]) - 1
+	apply_item(id)
+	return true
 
 func request_reload() -> void:
 	begin_reload()
@@ -351,6 +389,8 @@ func get_save_data() -> Dictionary:
 		"max_hp": max_hp,
 		"base_mag": base_mag,
 		"special_slots": special_slots.duplicate(true),
+		"base_weapon_id": base_weapon_id,
+		"item_inventory": item_inventory.duplicate(true),
 		"selected_slot": selected_slot
 	}
 
@@ -359,4 +399,8 @@ func restore_save_data(data: Dictionary) -> void:
 	hp = clamp(float(data.get("hp", max_hp)), 1.0, max_hp)
 	base_mag = int(data.get("base_mag", base_mag_max))
 	special_slots = data.get("special_slots", []).duplicate(true)
+	base_weapon_id = str(data.get("base_weapon_id", "pistol"))
+	if base_weapon_id not in ["pistol", "sword", "fist"]:
+		base_weapon_id = "pistol"
+	item_inventory = data.get("item_inventory", {}).duplicate(true)
 	selected_slot = clamp(int(data.get("selected_slot", 0)), 0, special_slots.size())
