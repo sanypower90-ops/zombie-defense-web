@@ -1671,7 +1671,10 @@ func _close_leaderboard() -> void:
 func _on_top10_ready(entries: Array, remote: bool, message: String) -> void:
 	leaderboard_title.text = "TOP 10 · %s" % message
 	var lines: Array[String] = []
-	if entries.is_empty():
+	var online_error: bool = leaderboard.remote_enabled() and not remote
+	if online_error:
+		lines.append("공용 랭킹을 불러오지 못했습니다.\n인터넷 연결을 확인하고 다시 시도해 주세요.")
+	elif entries.is_empty():
 		lines.append("아직 등록된 점수가 없습니다.")
 	else:
 		for i in range(entries.size()):
@@ -1690,7 +1693,9 @@ func _on_top10_ready(entries: Array, remote: bool, message: String) -> void:
 		rank_submit_button.disabled = false
 		if game_active or not result_panel.visible:
 			return
-		if _qualifies_for_top10(entries):
+		if online_error:
+			leaderboard_panel.show()
+		elif _qualifies_for_top10(entries):
 			nickname_status.text = "최종 점수: %d" % score
 			var saved_name = save_manager.get_player_name()
 			var valid_name = RegEx.new()
