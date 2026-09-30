@@ -11,8 +11,8 @@ func _run() -> void:
 	var game = GameScript.new()
 	root.add_child(game)
 	await process_frame
-	game.save_manager.save_path = "/private/tmp/zombie-defense-smoke-%d.json" % Time.get_ticks_usec()
-	game.save_manager.player_name_path = "/private/tmp/zombie-defense-name-%d.txt" % Time.get_ticks_usec()
+	game.save_manager.save_path = "/tmp/zombie-defense-smoke-%d.json" % Time.get_ticks_usec()
+	game.save_manager.player_name_path = "/tmp/zombie-defense-name-%d.txt" % Time.get_ticks_usec()
 	if not game.save_manager.save_player_name("테스트용아이디") or game.save_manager.get_player_name() != "테스트용아이디":
 		push_error("Local player name was not saved")
 		quit(1)
