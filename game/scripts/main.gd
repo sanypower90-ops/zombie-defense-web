@@ -5,6 +5,7 @@ const ZombieScript = preload("res://scripts/zombie.gd")
 const PickupScript = preload("res://scripts/pickup.gd")
 const SaveManagerScript = preload("res://scripts/save_manager.gd")
 const LeaderboardScript = preload("res://scripts/leaderboard.gd")
+const AccountServiceScript = preload("res://scripts/account_service.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 
 const ROUND_DURATION := 30.0
@@ -26,9 +27,13 @@ var sfx_cursor := 0
 var music_enabled = true
 var save_manager
 var leaderboard
+var account_service
+var cloud_stash: Dictionary = {}
+var cloud_ready := false
 var account_panel: PanelContainer
 var account_status: Label
-var account_email: LineEdit
+var account_username: LineEdit
+var account_password: LineEdit
 
 var game_active = false
 var gameplay_paused = false
@@ -132,6 +137,11 @@ func _ready() -> void:
 	add_child(leaderboard)
 	leaderboard.top10_ready.connect(_on_top10_ready)
 	leaderboard.submit_done.connect(_on_submit_done)
+	account_service = AccountServiceScript.new()
+	add_child(account_service)
+	account_service.auth_done.connect(_on_account_auth_done)
+	account_service.stash_loaded.connect(_on_cloud_stash_loaded)
+	account_service.stash_saved.connect(_on_cloud_stash_saved)
 
 	_build_world()
 	_build_ui()
@@ -432,7 +442,7 @@ func _build_ui() -> void:
 	character_button.pressed.connect(_show_character_panel)
 	menu_box.add_child(character_button)
 	var account_button = Button.new()
-	account_button.text = "내 이름 설정"
+	account_button.text = "개인 계정 · 보관 아이템"
 	account_button.custom_minimum_size = Vector2(0, 48)
 	account_button.pressed.connect(_show_account_panel)
 	menu_box.add_child(account_button)
@@ -478,26 +488,39 @@ func _build_ui() -> void:
 	character_panel.add_child(character_box)
 	character_panel.hide()
 
-	account_panel = _make_center_panel(hud, Vector2(550, 300))
+	account_panel = _make_center_panel(hud, Vector2(550, 420))
 	var account_box = VBoxContainer.new()
 	account_box.add_theme_constant_override("separation", 10)
 	account_panel.add_child(account_box)
 	var account_title = Label.new()
-	account_title.text = "내 이름 설정"
+	account_title.text = "개인 계정"
 	account_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	account_box.add_child(account_title)
-	account_email = LineEdit.new()
-	account_email.placeholder_text = "아무거나 기억하기 좋은걸로"
-	account_email.max_length = 20
-	account_email.text = save_manager.get_player_name()
-	account_box.add_child(account_email)
-	var save_name_button = Button.new()
-	save_name_button.text = "이 기기에 이름 저장"
-	save_name_button.pressed.connect(_save_local_player_name)
-	account_box.add_child(save_name_button)
+	account_username = LineEdit.new()
+	account_username.placeholder_text = "아무거나 기억하기 좋은 아이디 (2~20자)"
+	account_username.max_length = 20
+	account_username.text = save_manager.get_player_name()
+	account_box.add_child(account_username)
+	account_password = LineEdit.new()
+	account_password.placeholder_text = "비밀번호 (8자 이상)"
+	account_password.secret = true
+	account_password.max_length = 72
+	account_box.add_child(account_password)
+	var register_button = Button.new()
+	register_button.text = "새 계정 만들기"
+	register_button.pressed.connect(func(): account_service.register_account(account_username.text, account_password.text))
+	account_box.add_child(register_button)
+	var login_button = Button.new()
+	login_button.text = "로그인"
+	login_button.pressed.connect(func(): account_service.login_account(account_username.text, account_password.text))
+	account_box.add_child(login_button)
+	var logout_button = Button.new()
+	logout_button.text = "로그아웃"
+	logout_button.pressed.connect(_logout_account)
+	account_box.add_child(logout_button)
 	account_status = Label.new()
 	account_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	account_status.text = "이름과 아이템은 이 기기에 저장됩니다. 온라인 계정은 서버 연결 후 이용할 수 있습니다."
+	account_status.text = "로그인하면 보관 아이템을 서버에서 불러옵니다. 비밀번호 찾기는 지원하지 않습니다."
 	account_box.add_child(account_status)
 	var account_close = Button.new()
 	account_close.text = "닫기"
@@ -648,10 +671,70 @@ func _show_character_panel() -> void:
 		gameplay_paused = true
 
 func _show_account_panel() -> void:
+	if account_service.logged_in():
+		account_status.text = "%s 계정으로 로그인되어 있습니다." % account_service.username()
 	account_panel.show()
 
-func _save_local_player_name() -> void:
-	account_status.text = "이름을 저장했습니다." if save_manager.save_player_name(account_email.text) else "이름을 2~20자로 입력해주세요."
+func _on_account_auth_done(ok: bool, message: String) -> void:
+	if account_status != null:
+		account_status.text = message
+	if ok:
+		cloud_ready = false
+		account_password.clear()
+
+func _on_cloud_stash_loaded(ok: bool, stash: Dictionary, message: String) -> void:
+	if account_status != null:
+		account_status.text = message
+	if not ok:
+		return
+	var guest_player: Dictionary = {}
+	if account_service.just_registered and stash.is_empty():
+		guest_player = save_manager.load_checkpoint().get("player", {})
+	save_manager.set_active_account(account_service.user_id())
+	cloud_stash = stash.duplicate(true)
+	var local_copy: Dictionary = save_manager.load_checkpoint()
+	if float(local_copy.get("saved_at", 0.0)) > float(cloud_stash.get("_saved_at", 0.0)):
+		var newer_player: Dictionary = local_copy.get("player", {})
+		if not newer_player.is_empty():
+			cloud_stash = {
+				"item_inventory": newer_player.get("item_inventory", {}).duplicate(true),
+				"special_slots": newer_player.get("special_slots", []).duplicate(true),
+				"base_weapon_id": newer_player.get("base_weapon_id", "pistol"),
+				"_saved_at": local_copy.get("saved_at", 0.0)
+			}
+			account_service.save_stash(cloud_stash)
+	if not guest_player.is_empty():
+		cloud_stash = {
+			"item_inventory": guest_player.get("item_inventory", {}).duplicate(true),
+			"special_slots": guest_player.get("special_slots", []).duplicate(true),
+			"base_weapon_id": guest_player.get("base_weapon_id", "pistol"),
+			"_saved_at": Time.get_unix_time_from_system()
+		}
+		account_service.save_stash(cloud_stash)
+	account_service.just_registered = false
+	cloud_ready = true
+	if account_service.username().length() >= 2:
+		save_manager.save_player_name(account_service.username())
+	if player != null and not game_active:
+		player.queue_free()
+		player = null
+	if character_panel != null and character_panel.visible:
+		_refresh_character_panel()
+
+func _on_cloud_stash_saved(ok: bool, message: String) -> void:
+	if not ok and save_label != null:
+		save_label.text = "온라인 저장 실패 · 재시도 필요"
+	if account_panel != null and account_panel.visible:
+		account_status.text = message
+
+func _logout_account() -> void:
+	account_service.logout()
+	save_manager.set_active_account("")
+	cloud_stash.clear()
+	cloud_ready = false
+	account_password.clear()
+	account_status.text = "로그아웃했습니다. 이 기기의 게스트 보관 정보는 그대로 유지됩니다."
+	_refresh_character_panel()
 
 func _close_character_panel() -> void:
 	character_panel.hide()
@@ -662,7 +745,7 @@ func _refresh_character_panel() -> void:
 	for child in character_box.get_children():
 		child.queue_free()
 	var saved: Dictionary = save_manager.load_checkpoint() if player == null else {}
-	var saved_player: Dictionary = saved.get("player", {})
+	var saved_player: Dictionary = cloud_stash if player == null and account_service.logged_in() else saved.get("player", {})
 	var inventory: Dictionary = player.item_inventory if player != null else saved_player.get("item_inventory", {})
 	var title = Label.new()
 	title.text = "내 캐릭터 · LV %d" % level
@@ -872,6 +955,10 @@ func _show_main_menu() -> void:
 		save_label.text = ""
 
 func start_new_game() -> void:
+	if account_service.logged_in() and not cloud_ready:
+		_show_account_panel()
+		account_status.text = "서버의 보관 아이템을 불러온 뒤 시작해 주세요."
+		return
 	_pending_rank_check = false
 	_clear_dynamic_entities()
 	menu_panel.hide()
@@ -911,8 +998,8 @@ func start_new_game() -> void:
 
 	round_number = 1
 	var stored: Dictionary = save_manager.load_checkpoint()
-	if not stored.is_empty():
-		var stored_player: Dictionary = stored.get("player", {})
+	var stored_player: Dictionary = cloud_stash if account_service.logged_in() else stored.get("player", {})
+	if not stored_player.is_empty():
 		player.item_inventory = stored_player.get("item_inventory", {}).duplicate(true)
 		player.special_slots = stored_player.get("special_slots", []).duplicate(true)
 		player.base_weapon_id = str(stored_player.get("base_weapon_id", "pistol"))
@@ -948,6 +1035,7 @@ func _finish_round() -> void:
 	_start_round()
 
 func _save_checkpoint(next_round: int) -> void:
+	var saved_at = Time.get_unix_time_from_system()
 	var data = {
 		"next_round": next_round,
 		"score": score,
@@ -956,12 +1044,21 @@ func _save_checkpoint(next_round: int) -> void:
 		"xp": xp,
 		"xp_needed": xp_needed,
 		"upgrades": upgrades.duplicate(true),
-		"player": player.get_save_data()
+		"player": player.get_save_data(),
+		"saved_at": saved_at
 	}
 	if save_manager.save_checkpoint(data):
 		save_label.text = "보관 정보 저장됨"
 	else:
 		save_label.text = "저장 실패"
+	if account_service.logged_in() and cloud_ready:
+		cloud_stash = {
+			"item_inventory": player.item_inventory.duplicate(true),
+			"special_slots": player.special_slots.duplicate(true),
+			"base_weapon_id": player.base_weapon_id,
+			"_saved_at": saved_at
+		}
+		account_service.save_stash(cloud_stash)
 
 func _handle_spawning(delta: float) -> void:
 	if spawned_this_round >= spawn_target:
