@@ -11,7 +11,13 @@ func _run() -> void:
 	var game = GameScript.new()
 	root.add_child(game)
 	await process_frame
-	game.start_new_game(false)
+	game.save_manager.save_path = "/private/tmp/zombie-defense-smoke-%d.json" % Time.get_ticks_usec()
+	game.save_manager.player_name_path = "/private/tmp/zombie-defense-name-%d.txt" % Time.get_ticks_usec()
+	if not game.save_manager.save_player_name("테스트용아이디") or game.save_manager.get_player_name() != "테스트용아이디":
+		push_error("Local player name was not saved")
+		quit(1)
+		return
+	game.start_new_game()
 	await process_frame
 	if game.player == null or game.round_time_left <= 29.0 or game.round_time_left > 30.0:
 		push_error("Game start or 30-second round failed")
@@ -194,6 +200,36 @@ func _run() -> void:
 		quit(1)
 		return
 	game._close_art_panel()
+	game._request_rank_registration()
+	if game.nickname_panel.visible or game._pending_rank_check:
+		push_error("Ranking registration opened during active play")
+		quit(1)
+		return
+	game.player.store_item("armor")
+	game.round_number = 5
+	game.score = 555
+	game._save_checkpoint(6)
+	game._end_run(false)
+	if game.nickname_panel.visible or game._pending_rank_check:
+		push_error("Ranking registration opened automatically at game over")
+		quit(1)
+		return
+	game._pending_rank_check = true
+	game._on_top10_ready([], false, "test")
+	if not game.nickname_panel.visible:
+		push_error("Ranking registration was unavailable after game over")
+		quit(1)
+		return
+	game.start_new_game()
+	if game.round_number != 1 or game.score != 0 or int(game.player.item_inventory.get("armor", 0)) < 1 or game.nickname_panel.visible:
+		push_error("Start should reset the run but keep collected items")
+		quit(1)
+		return
+	game._on_top10_ready([], false, "late")
+	if game.nickname_panel.visible:
+		push_error("A late leaderboard response reopened ranking during play")
+		quit(1)
+		return
 	var player_visual: Node3D = game.player.visual_root
 	VisualFactory.animate_player(player_visual, PI * 0.5, 1.0, 1.0)
 	if absf(player_visual.get_node("LegL").rotation.x) < 0.3 or player_visual.get_node("WeaponMount").position.z < -0.25:
@@ -207,7 +243,9 @@ func _run() -> void:
 		quit(1)
 		return
 	zombie_visual.free()
-	print("SMOKE_TEST_PASS: mobile full screen, 40% player scale, one-stick control, game menu, fixed camera, weapon/zombie SFX, 30-second round, 10x zombies, protected spawn, hit cooldown, cover, item label, BGM")
+	game.save_manager.clear_checkpoint()
+	DirAccess.remove_absolute(game.save_manager.player_name_path)
+	print("SMOKE_TEST_PASS: start resets round and score, local item stash and name persist, ranking is result-only, mobile one-stick control, fixed camera, 30-second round, cover, BGM")
 	game.queue_free()
 	await process_frame
 	quit(0)
