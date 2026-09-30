@@ -108,6 +108,14 @@ static func animate_player(root: Node3D, phase: float, motion: float, recoil: fl
 static func set_player_weapon(mount: Node3D, weapon_id: String) -> void:
 	for child in mount.get_children():
 		child.queue_free()
+	if weapon_id == "fist":
+		box(mount, Vector3(0, -0.08, -0.18), Vector3(0.32, 0.23, 0.34), Color(0.22, 0.23, 0.24), 0.3)
+		return
+	if weapon_id == "sword":
+		box(mount, Vector3(0, -0.03, -0.2), Vector3(0.16, 0.12, 0.34), Color(0.20, 0.18, 0.15))
+		box(mount, Vector3(0, 0.02, -0.36), Vector3(0.44, 0.10, 0.09), Color(0.63, 0.48, 0.22), 0.45)
+		box(mount, Vector3(0, 0.02, -1.08), Vector3(0.10, 0.055, 1.35), Color(0.72, 0.79, 0.83), 0.82)
+		return
 	var dark = Color(0.10, 0.11, 0.12)
 	var steel = Color(0.36, 0.37, 0.37)
 	var length = 0.55
