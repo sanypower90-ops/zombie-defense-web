@@ -5,6 +5,16 @@ const PLAYER_NAME_PATH := "user://player_name.txt"
 const SAVE_VERSION := 1
 var save_path := SAVE_PATH
 var player_name_path := PLAYER_NAME_PATH
+var account_save_dir := "user://"
+var _guest_save_path := ""
+
+func set_active_account(user_id: String) -> void:
+	if _guest_save_path.is_empty():
+		_guest_save_path = save_path
+	if user_id.is_empty():
+		save_path = _guest_save_path
+	elif user_id.length() == 36 and user_id.replace("-", "").is_valid_hex_number():
+		save_path = "%s/account_%s.json" % [account_save_dir.trim_suffix("/"), user_id]
 
 func has_checkpoint() -> bool:
 	return FileAccess.file_exists(save_path)
