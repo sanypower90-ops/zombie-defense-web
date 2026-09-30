@@ -5,7 +5,6 @@ const ZombieScript = preload("res://scripts/zombie.gd")
 const PickupScript = preload("res://scripts/pickup.gd")
 const SaveManagerScript = preload("res://scripts/save_manager.gd")
 const LeaderboardScript = preload("res://scripts/leaderboard.gd")
-const AccountServiceScript = preload("res://scripts/account_service.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 
 const ROUND_DURATION := 30.0
@@ -27,11 +26,9 @@ var sfx_cursor := 0
 var music_enabled = true
 var save_manager
 var leaderboard
-var account_service
 var account_panel: PanelContainer
 var account_status: Label
 var account_email: LineEdit
-var account_password: LineEdit
 
 var game_active = false
 var gameplay_paused = false
@@ -96,7 +93,7 @@ var xp_label: Label
 var weapon_label: Label
 var save_label: Label
 var menu_panel: PanelContainer
-var continue_button: Button
+var rank_submit_button: Button
 var upgrade_panel: PanelContainer
 var upgrade_buttons: Array[Button] = []
 var result_panel: PanelContainer
@@ -135,11 +132,6 @@ func _ready() -> void:
 	add_child(leaderboard)
 	leaderboard.top10_ready.connect(_on_top10_ready)
 	leaderboard.submit_done.connect(_on_submit_done)
-	account_service = AccountServiceScript.new()
-	add_child(account_service)
-	account_service.status_changed.connect(_on_account_status)
-	account_service.save_loaded.connect(_on_cloud_save_loaded)
-	account_service.signed_in.connect(func(_email: String): account_password.clear())
 
 	_build_world()
 	_build_ui()
@@ -432,20 +424,15 @@ func _build_ui() -> void:
 	start_style.shadow_size = 12
 	start_button.add_theme_stylebox_override("normal", start_style)
 	start_button.add_theme_color_override("font_color", Color(1.0, 0.90, 1.0))
-	start_button.pressed.connect(func(): start_new_game(false))
+	start_button.pressed.connect(start_new_game)
 	menu_box.add_child(start_button)
-	continue_button = Button.new()
-	continue_button.text = "체크포인트 이어하기"
-	continue_button.custom_minimum_size = Vector2(0, 48)
-	continue_button.pressed.connect(_continue_game)
-	menu_box.add_child(continue_button)
 	var character_button = Button.new()
 	character_button.text = "내 캐릭터 · 무기 · 보관 아이템"
 	character_button.custom_minimum_size = Vector2(0, 48)
 	character_button.pressed.connect(_show_character_panel)
 	menu_box.add_child(character_button)
 	var account_button = Button.new()
-	account_button.text = "온라인 계정 · 저장"
+	account_button.text = "내 이름 설정"
 	account_button.custom_minimum_size = Vector2(0, 48)
 	account_button.pressed.connect(_show_account_panel)
 	menu_box.add_child(account_button)
@@ -460,11 +447,11 @@ func _build_ui() -> void:
 	concept_button.pressed.connect(_show_art_panel)
 	menu_box.add_child(concept_button)
 	var controls = Label.new()
-	controls.text = "PC: WASD/방향키 이동 · 마우스 조준 · 좌클릭 사격 · 1/2/3 무기 · R 재장전\n모바일: 왼쪽 원형 버튼 하나로 이동·조준·자동사격"
+	controls.text = "PC: WASD/방향키 이동 · 마우스 조준 · 좌클릭 사격 · 1/2/3 무기 · R 재장전\n모바일: 중앙 하단 조이스틱 하나로 이동·조준·자동사격"
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_box.add_child(controls)
-	game_menu_panel = _make_center_panel(hud, Vector2(430, 355))
+	game_menu_panel = _make_center_panel(hud, Vector2(430, 250))
 	var game_menu_box = VBoxContainer.new()
 	game_menu_box.add_theme_constant_override("separation", 12)
 	game_menu_panel.add_child(game_menu_box)
@@ -473,21 +460,11 @@ func _build_ui() -> void:
 	game_menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	game_menu_title.add_theme_font_size_override("font_size", 28)
 	game_menu_box.add_child(game_menu_title)
-	var home_button = Button.new()
-	home_button.text = "홈 바로가기"
-	home_button.custom_minimum_size = Vector2(0, 56)
-	home_button.pressed.connect(_show_main_menu)
-	game_menu_box.add_child(home_button)
 	pause_button = Button.new()
 	pause_button.text = "일시정지"
 	pause_button.custom_minimum_size = Vector2(0, 56)
 	pause_button.pressed.connect(_toggle_pause)
 	game_menu_box.add_child(pause_button)
-	var restart_button = Button.new()
-	restart_button.text = "다시하기"
-	restart_button.custom_minimum_size = Vector2(0, 56)
-	restart_button.pressed.connect(func(): start_new_game(false))
-	game_menu_box.add_child(restart_button)
 	var game_character_button = Button.new()
 	game_character_button.text = "내 캐릭터"
 	game_character_button.custom_minimum_size = Vector2(0, 52)
@@ -501,32 +478,26 @@ func _build_ui() -> void:
 	character_panel.add_child(character_box)
 	character_panel.hide()
 
-	account_panel = _make_center_panel(hud, Vector2(550, 420))
+	account_panel = _make_center_panel(hud, Vector2(550, 300))
 	var account_box = VBoxContainer.new()
 	account_box.add_theme_constant_override("separation", 10)
 	account_panel.add_child(account_box)
 	var account_title = Label.new()
-	account_title.text = "온라인 계정 · 클라우드 이어하기"
+	account_title.text = "내 이름 설정"
 	account_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	account_box.add_child(account_title)
 	account_email = LineEdit.new()
-	account_email.placeholder_text = "이메일(ID)"
+	account_email.placeholder_text = "아무거나 기억하기 좋은걸로"
+	account_email.max_length = 20
+	account_email.text = save_manager.get_player_name()
 	account_box.add_child(account_email)
-	account_password = LineEdit.new()
-	account_password.placeholder_text = "비밀번호 (6자 이상)"
-	account_password.secret = true
-	account_box.add_child(account_password)
-	var sign_in_button = Button.new()
-	sign_in_button.text = "로그인"
-	sign_in_button.pressed.connect(func(): account_service.sign_in(account_email.text.strip_edges(), account_password.text))
-	account_box.add_child(sign_in_button)
-	var sign_up_button = Button.new()
-	sign_up_button.text = "새 계정 만들기"
-	sign_up_button.pressed.connect(func(): account_service.sign_up(account_email.text.strip_edges(), account_password.text))
-	account_box.add_child(sign_up_button)
+	var save_name_button = Button.new()
+	save_name_button.text = "이 기기에 이름 저장"
+	save_name_button.pressed.connect(_save_local_player_name)
+	account_box.add_child(save_name_button)
 	account_status = Label.new()
 	account_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	account_status.text = "서버 연결 전: 로컬 저장만 이용할 수 있습니다." if not account_service.configured() else "로그인하면 저장 데이터를 불러옵니다."
+	account_status.text = "이름과 아이템은 이 기기에 저장됩니다. 온라인 계정은 서버 연결 후 이용할 수 있습니다."
 	account_box.add_child(account_status)
 	var account_close = Button.new()
 	account_close.text = "닫기"
@@ -559,10 +530,15 @@ func _build_ui() -> void:
 	result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_label.add_theme_font_size_override("font_size", 25)
 	result_box.add_child(result_label)
+	rank_submit_button = Button.new()
+	rank_submit_button.text = "랭킹 등록"
+	rank_submit_button.custom_minimum_size = Vector2(0, 46)
+	rank_submit_button.pressed.connect(_request_rank_registration)
+	result_box.add_child(rank_submit_button)
 	var retry = Button.new()
 	retry.text = "새 게임"
 	retry.custom_minimum_size = Vector2(0, 46)
-	retry.pressed.connect(func(): start_new_game(false))
+	retry.pressed.connect(start_new_game)
 	result_box.add_child(retry)
 	var result_rank = Button.new()
 	result_rank.text = "TOP 10 보기"
@@ -674,12 +650,8 @@ func _show_character_panel() -> void:
 func _show_account_panel() -> void:
 	account_panel.show()
 
-func _on_account_status(message: String) -> void:
-	account_status.text = message
-
-func _on_cloud_save_loaded(data: Dictionary) -> void:
-	if save_manager.save_checkpoint(data):
-		continue_button.disabled = false
+func _save_local_player_name() -> void:
+	account_status.text = "이름을 저장했습니다." if save_manager.save_player_name(account_email.text) else "이름을 2~20자로 입력해주세요."
 
 func _close_character_panel() -> void:
 	character_panel.hide()
@@ -689,6 +661,9 @@ func _close_character_panel() -> void:
 func _refresh_character_panel() -> void:
 	for child in character_box.get_children():
 		child.queue_free()
+	var saved: Dictionary = save_manager.load_checkpoint() if player == null else {}
+	var saved_player: Dictionary = saved.get("player", {})
+	var inventory: Dictionary = player.item_inventory if player != null else saved_player.get("item_inventory", {})
 	var title = Label.new()
 	title.text = "내 캐릭터 · LV %d" % level
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -703,11 +678,11 @@ func _refresh_character_panel() -> void:
 		weapon_button.pressed.connect(_choose_character_weapon.bind(id))
 		character_box.add_child(weapon_button)
 	var inventory_label = Label.new()
-	inventory_label.text = "보관 아이템 (눌러서 사용)"
+	inventory_label.text = "보관 아이템 (게임을 시작하면 사용 가능)" if player == null else "보관 아이템 (눌러서 사용)"
 	character_box.add_child(inventory_label)
 	var names = {"heal":"응급 키트", "speed":"이동 강화", "damage":"공격 강화", "armor":"방어 강화", "invuln":"무적"}
 	for id in names.keys():
-		var count = int(player.item_inventory.get(id, 0)) if player != null else 0
+		var count = int(inventory.get(id, 0))
 		var item_button = Button.new()
 		item_button.text = "%s × %d" % [names[id], count]
 		item_button.disabled = player == null or count <= 0 or not game_active
@@ -721,10 +696,12 @@ func _refresh_character_panel() -> void:
 func _choose_character_weapon(id: String) -> void:
 	if player != null:
 		player.select_base_weapon(id)
+		_save_checkpoint(round_number)
 	_refresh_character_panel()
 
 func _use_character_item(id: String) -> void:
 	if player != null and player.use_stored_item(id):
+		_save_checkpoint(round_number)
 		_refresh_character_panel()
 
 func _build_touch_controls(hud: Control) -> void:
@@ -873,6 +850,7 @@ func _make_center_panel(parent: Control, panel_size: Vector2) -> PanelContainer:
 	return panel
 
 func _show_main_menu() -> void:
+	_pending_rank_check = false
 	game_active = false
 	game_menu_button.hide()
 	game_menu_panel.hide()
@@ -888,13 +866,13 @@ func _show_main_menu() -> void:
 	result_panel.hide()
 	nickname_panel.hide()
 	upgrade_panel.hide()
-	continue_button.disabled = not save_manager.has_checkpoint()
 	if not save_manager.persistent_storage_available():
 		save_label.text = "주의: 브라우저 저장소가 지속되지 않을 수 있습니다."
 	else:
 		save_label.text = ""
 
-func start_new_game(from_checkpoint: bool) -> void:
+func start_new_game() -> void:
+	_pending_rank_check = false
 	_clear_dynamic_entities()
 	menu_panel.hide()
 	result_panel.hide()
@@ -932,24 +910,18 @@ func start_new_game(from_checkpoint: bool) -> void:
 	player.global_position = Vector3(0, 0.85, 0)
 
 	round_number = 1
-	if from_checkpoint:
-		var data: Dictionary = save_manager.load_checkpoint()
-		if not data.is_empty():
-			round_number = int(data.get("next_round", 1))
-			score = int(data.get("score", 0))
-			kills = int(data.get("kills", 0))
-			level = int(data.get("level", 1))
-			xp = int(data.get("xp", 0))
-			xp_needed = int(data.get("xp_needed", 80))
-			upgrades = data.get("upgrades", upgrades).duplicate(true)
-			player.restore_save_data(data.get("player", {}))
+	var stored: Dictionary = save_manager.load_checkpoint()
+	if not stored.is_empty():
+		var stored_player: Dictionary = stored.get("player", {})
+		player.item_inventory = stored_player.get("item_inventory", {}).duplicate(true)
+		player.special_slots = stored_player.get("special_slots", []).duplicate(true)
+		player.base_weapon_id = str(stored_player.get("base_weapon_id", "pistol"))
+		if player.base_weapon_id not in ["pistol", "sword", "fist"]:
+			player.base_weapon_id = "pistol"
+		player.selected_slot = 0
 	_rebuild_clones()
 	max_round_reached = round_number
 	_start_round()
-
-func _continue_game() -> void:
-	if save_manager.has_checkpoint():
-		start_new_game(true)
 
 func _start_round() -> void:
 	_clear_zombies_and_pickups()
@@ -987,8 +959,7 @@ func _save_checkpoint(next_round: int) -> void:
 		"player": player.get_save_data()
 	}
 	if save_manager.save_checkpoint(data):
-		save_label.text = "체크포인트 저장: ROUND %d" % next_round
-		account_service.upload_save(data)
+		save_label.text = "보관 정보 저장됨"
 	else:
 		save_label.text = "저장 실패"
 
@@ -1665,15 +1636,20 @@ func _end_run(win: bool) -> void:
 	if touch_controls != null:
 		touch_controls.hide()
 	_clear_zombies_and_pickups()
-	if win:
-		save_manager.clear_checkpoint()
 	_result_was_win = win
 	result_label.text = "%s\n점수 %d\n도달 ROUND %d\n처치 %d" % [
 		"100라운드 생존 성공!" if win else "GAME OVER",
 		score, max_round_reached, kills
 	]
 	result_panel.show()
+	_pending_rank_check = false
+	rank_submit_button.disabled = false
+
+func _request_rank_registration() -> void:
+	if game_active or not result_panel.visible:
+		return
 	_pending_rank_check = true
+	rank_submit_button.disabled = true
 	leaderboard.fetch_top10()
 
 func _show_leaderboard() -> void:
@@ -1711,9 +1687,15 @@ func _on_top10_ready(entries: Array, remote: bool, message: String) -> void:
 
 	if _pending_rank_check:
 		_pending_rank_check = false
+		rank_submit_button.disabled = false
+		if game_active or not result_panel.visible:
+			return
 		if _qualifies_for_top10(entries):
 			nickname_status.text = "최종 점수: %d" % score
-			nickname_edit.text = ""
+			var saved_name = save_manager.get_player_name()
+			var valid_name = RegEx.new()
+			valid_name.compile("^[A-Za-z0-9가-힣_]{2,12}$")
+			nickname_edit.text = saved_name if valid_name.search(saved_name) != null else ""
 			nickname_panel.show()
 			nickname_edit.grab_focus()
 		else:
@@ -1733,6 +1715,8 @@ func _qualifies_for_top10(entries: Array) -> bool:
 	return kills > cutoff_kills
 
 func _submit_nickname() -> void:
+	if game_active or not result_panel.visible:
+		return
 	var nickname = nickname_edit.text.strip_edges()
 	var regex = RegEx.new()
 	regex.compile("^[A-Za-z0-9가-힣_]{2,12}$")
