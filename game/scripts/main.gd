@@ -1653,7 +1653,6 @@ func collect_pickup(pickup: Node, body: Node) -> void:
 func on_player_dead() -> void:
 	if not game_active:
 		return
-	save_manager.clear_checkpoint()
 	_end_run(false)
 
 func _end_run(win: bool) -> void:
