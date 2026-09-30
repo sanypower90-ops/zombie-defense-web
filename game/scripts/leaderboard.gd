@@ -27,8 +27,7 @@ func fetch_top10() -> void:
 	var base = Config.SUPABASE_URL.trim_suffix("/")
 	var url = "%s/rest/v1/%s?select=nickname,score,max_round,kills,created_at&order=score.desc,max_round.desc,kills.desc,created_at.asc&limit=10" % [base, Config.TABLE_NAME]
 	var headers = PackedStringArray([
-		"apikey: %s" % Config.SUPABASE_ANON_KEY,
-		"Authorization: Bearer %s" % Config.SUPABASE_ANON_KEY
+		"apikey: %s" % Config.SUPABASE_ANON_KEY
 	])
 	var err = _get_request.request(url, headers, HTTPClient.METHOD_GET)
 	if err != OK:
@@ -49,7 +48,6 @@ func submit_score(nickname: String, score: int, max_round: int, kills: int) -> v
 	var url = "%s/rest/v1/%s" % [base, Config.TABLE_NAME]
 	var headers = PackedStringArray([
 		"apikey: %s" % Config.SUPABASE_ANON_KEY,
-		"Authorization: Bearer %s" % Config.SUPABASE_ANON_KEY,
 		"Content-Type: application/json",
 		"Prefer: return=minimal"
 	])
