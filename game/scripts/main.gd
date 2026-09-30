@@ -6,6 +6,7 @@ const PickupScript = preload("res://scripts/pickup.gd")
 const SaveManagerScript = preload("res://scripts/save_manager.gd")
 const LeaderboardScript = preload("res://scripts/leaderboard.gd")
 const AccountServiceScript = preload("res://scripts/account_service.gd")
+const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 
 const ROUND_DURATION := 30.0
@@ -14,6 +15,7 @@ const SPECIAL_COUNT_BOOST_ROUNDS := [11, 21, 31, 51, 61, 71, 81, 91]
 const MAP_HALF_SIZE := 38.0
 
 var player
+var ability_effects
 var camera: Camera3D
 var menu_music: AudioStreamPlayer
 var gameplay_music: AudioStreamPlayer
@@ -718,6 +720,7 @@ func _on_cloud_stash_loaded(ok: bool, stash: Dictionary, message: String) -> voi
 	if player != null and not game_active:
 		player.queue_free()
 		player = null
+		ability_effects = null
 	if character_panel != null and character_panel.visible:
 		_refresh_character_panel()
 
@@ -784,8 +787,16 @@ func _choose_character_weapon(id: String) -> void:
 
 func _use_character_item(id: String) -> void:
 	if player != null and player.use_stored_item(id):
+		var expires_at = 0.0
+		match id:
+			"speed": expires_at = player.speed_buff_until
+			"damage": expires_at = player.damage_buff_until
+			"armor": expires_at = player.armor_buff_until
+			"invuln": expires_at = player.invuln_until
+		if ability_effects != null:
+			ability_effects.show_item_use(id, expires_at)
 		_save_checkpoint(round_number)
-		_refresh_character_panel()
+		_close_character_panel()
 
 func _build_touch_controls(hud: Control) -> void:
 	touch_controls = Control.new()
@@ -995,6 +1006,8 @@ func start_new_game() -> void:
 	player.setup(self)
 	add_child(player)
 	player.global_position = Vector3(0, 0.85, 0)
+	ability_effects = AbilityEffectsScript.new()
+	player.add_child(ability_effects)
 
 	round_number = 1
 	var stored: Dictionary = save_manager.load_checkpoint()
@@ -1552,9 +1565,8 @@ func _on_upgrade_selected(index: int) -> void:
 		return
 	_apply_upgrade(id)
 	_save_checkpoint(round_number)
-	if player != null:
-		for i in range(5):
-			_make_burst(player.global_position + Vector3(randf_range(-2.0, 2.0), randf_range(0.0, 2.0), randf_range(-2.0, 2.0)), Color.from_hsv(randf(), 0.75, 1.0), 1.0 + i * 0.3)
+	if ability_effects != null:
+		ability_effects.show_upgrade(id, int(upgrades[id]))
 	pending_levelups = max(pending_levelups - 1, 0)
 	upgrade_panel.hide()
 	gameplay_paused = false
@@ -1702,6 +1714,9 @@ func _spawn_pickup(pos: Vector3, kind: String, payload: String) -> void:
 func collect_pickup(pickup: Node, body: Node) -> void:
 	if body != player:
 		return
+	if ability_effects != null:
+		var weapon_name = str(weapon_data.get(pickup.payload, {}).get("name", pickup.payload)) if pickup.pickup_kind == "weapon" else ""
+		ability_effects.show_pickup(pickup.pickup_kind, pickup.payload, weapon_name)
 	if pickup.pickup_kind == "weapon":
 		player.acquire_weapon(pickup.payload)
 		_save_checkpoint(round_number)
@@ -1901,3 +1916,4 @@ func _clear_dynamic_entities() -> void:
 	if player != null and is_instance_valid(player):
 		player.queue_free()
 	player = null
+	ability_effects = null
