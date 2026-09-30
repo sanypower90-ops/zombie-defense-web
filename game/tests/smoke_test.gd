@@ -13,6 +13,10 @@ func _run() -> void:
 	await process_frame
 	game.save_manager.save_path = "/tmp/zombie-defense-smoke-%d.json" % Time.get_ticks_usec()
 	game.save_manager.player_name_path = "/tmp/zombie-defense-name-%d.txt" % Time.get_ticks_usec()
+	if not game.leaderboard.remote_enabled():
+		push_error("Shared leaderboard is not configured")
+		quit(1)
+		return
 	if not game.save_manager.save_player_name("테스트용아이디") or game.save_manager.get_player_name() != "테스트용아이디":
 		push_error("Local player name was not saved")
 		quit(1)
@@ -215,7 +219,14 @@ func _run() -> void:
 		quit(1)
 		return
 	game._pending_rank_check = true
-	game._on_top10_ready([], false, "test")
+	game._on_top10_ready([], false, "connection failure")
+	if game.nickname_panel.visible or not game.leaderboard_panel.visible:
+		push_error("Online ranking failure opened registration or hid the error")
+		quit(1)
+		return
+	game.leaderboard_panel.hide()
+	game._pending_rank_check = true
+	game._on_top10_ready([], true, "test")
 	if not game.nickname_panel.visible:
 		push_error("Ranking registration was unavailable after game over")
 		quit(1)
