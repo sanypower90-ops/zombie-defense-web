@@ -31,7 +31,7 @@ func fetch_top10() -> void:
 	])
 	var err = _get_request.request(url, headers, HTTPClient.METHOD_GET)
 	if err != OK:
-		top10_ready.emit(_load_local_top10(), false, "온라인 랭킹 연결 실패")
+		top10_ready.emit([], false, "온라인 랭킹 연결 실패")
 
 func submit_score(nickname: String, score: int, max_round: int, kills: int) -> void:
 	var row = {
@@ -40,8 +40,8 @@ func submit_score(nickname: String, score: int, max_round: int, kills: int) -> v
 		"max_round": max_round,
 		"kills": kills
 	}
-	_save_local_score(row)
 	if not remote_enabled():
+		_save_local_score(row)
 		submit_done.emit(true, "로컬 랭킹에 저장되었습니다.")
 		return
 	var base = Config.SUPABASE_URL.trim_suffix("/")
@@ -53,15 +53,15 @@ func submit_score(nickname: String, score: int, max_round: int, kills: int) -> v
 	])
 	var err = _post_request.request(url, headers, HTTPClient.METHOD_POST, JSON.stringify(row))
 	if err != OK:
-		submit_done.emit(false, "온라인 제출 실패. 로컬에는 저장되었습니다.")
+		submit_done.emit(false, "온라인 제출 실패. 다시 시도해 주세요.")
 
 func _on_get_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code < 200 or response_code >= 300:
-		top10_ready.emit(_load_local_top10(), false, "온라인 랭킹 응답 오류")
+		top10_ready.emit([], false, "온라인 랭킹 응답 오류")
 		return
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_ARRAY:
-		top10_ready.emit(_load_local_top10(), false, "온라인 랭킹 형식 오류")
+		top10_ready.emit([], false, "온라인 랭킹 형식 오류")
 		return
 	var entries: Array = parsed
 	top10_ready.emit(entries, true, "글로벌 랭킹")
@@ -70,7 +70,7 @@ func _on_post_completed(_result: int, response_code: int, _headers: PackedString
 	if response_code >= 200 and response_code < 300:
 		submit_done.emit(true, "글로벌 랭킹 등록 완료")
 	else:
-		submit_done.emit(false, "온라인 제출 실패. 로컬에는 저장되었습니다.")
+		submit_done.emit(false, "온라인 제출 실패. 다시 시도해 주세요.")
 
 func _load_local_top10() -> Array:
 	if not FileAccess.file_exists(LOCAL_PATH):
