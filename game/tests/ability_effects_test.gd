@@ -20,5 +20,7 @@ func _run() -> void:
 		push_error("One or more effect types did not create visible geometry")
 		quit(1)
 		return
+	for i in range(3):
+		await process_frame
 	print("ABILITY_EFFECTS_TEST_PASS: every upgrade and pickup created visual feedback")
 	quit(0)
