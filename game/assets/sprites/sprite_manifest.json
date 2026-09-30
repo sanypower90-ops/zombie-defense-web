@@ -1,0 +1,17 @@
+{
+  "cell_size": [128, 128],
+  "columns": 8,
+  "rows": 5,
+  "foot_baseline_y": 116,
+  "animations": {
+    "idle": {"row": 0, "frames": 4},
+    "walk": {"row": 1, "frames": 8},
+    "attack": {"row": 2, "frames": 6},
+    "hurt": {"row": 3, "frames": 4},
+    "death": {"row": 4, "frames": 8}
+  },
+  "characters": ["player","walker","runner","brute","armored","exploder","spitter","charger","toxic","screamer","shield","leaper","regenerator","nightmare","boss","final_boss"],
+  "weapons": ["pistol","sword","fist","shotgun","smg","rifle","lmg","grenade","flamethrower","sniper","rocket","laser"],
+  "items": ["heal","speed","damage","armor","invuln","bomb","xp_burst"],
+  "props": ["car","kiosk","barrier","crate","cone","lamp"]
+}
