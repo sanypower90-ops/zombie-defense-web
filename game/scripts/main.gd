@@ -5,6 +5,7 @@ const ZombieScript = preload("res://scripts/zombie.gd")
 const PickupScript = preload("res://scripts/pickup.gd")
 const SaveManagerScript = preload("res://scripts/save_manager.gd")
 const LeaderboardScript = preload("res://scripts/leaderboard.gd")
+const AccountServiceScript = preload("res://scripts/account_service.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 
 const ROUND_DURATION := 30.0
@@ -26,6 +27,11 @@ var sfx_cursor := 0
 var music_enabled = true
 var save_manager
 var leaderboard
+var account_service
+var account_panel: PanelContainer
+var account_status: Label
+var account_email: LineEdit
+var account_password: LineEdit
 
 var game_active = false
 var gameplay_paused = false
@@ -45,6 +51,8 @@ var level = 1
 var xp = 0
 var xp_needed = 80
 var pending_levelups = 0
+var auto_attack_elapsed := 0.0
+var clone_visuals: Array[Node3D] = []
 var upgrades = {
 	"damage": 0,
 	"fire_rate": 0,
@@ -53,11 +61,15 @@ var upgrades = {
 	"pickup": 0,
 	"flame": 0,
 	"explosive": 0,
-	"energy": 0
+	"energy": 0,
+	"auto_orbit": 0, "auto_shock": 0, "auto_flame": 0,
+	"auto_blade": 0, "auto_missile": 0, "clone": 0
 }
 
 var weapon_data = {
 	"pistol": {"name":"기본 권총", "damage":20.0, "fire_rate":3.0, "range":24.0, "ammo_max":-1},
+	"sword": {"name":"장검", "damage":6.0, "fire_rate":2.0, "range":5.5, "ammo_max":-1},
+	"fist": {"name":"짧은 주먹", "damage":14.0, "fire_rate":3.4, "range":1.8, "ammo_max":-1},
 	"shotgun": {"name":"샷건", "damage":30.0, "fire_rate":1.15, "range":11.0, "ammo_max":30},
 	"smg": {"name":"기관단총", "damage":16.0, "fire_rate":10.0, "range":20.0, "ammo_max":180},
 	"rifle": {"name":"돌격소총", "damage":30.0, "fire_rate":6.0, "range":26.0, "ammo_max":120},
@@ -98,9 +110,12 @@ var leaderboard_title: Label
 var art_panel: PanelContainer
 var art_title: Label
 var art_image: TextureRect
+var character_panel: PanelContainer
+var character_box: VBoxContainer
 var touch_controls: Control
 var touch_weapon_buttons: Array[Button] = []
 var touch_left_zone: PanelContainer
+var touch_hit_zone: Control
 var hud_top_left: VBoxContainer
 var hud_rank_button: Button
 var center_panels: Array[PanelContainer] = []
@@ -120,6 +135,11 @@ func _ready() -> void:
 	add_child(leaderboard)
 	leaderboard.top10_ready.connect(_on_top10_ready)
 	leaderboard.submit_done.connect(_on_submit_done)
+	account_service = AccountServiceScript.new()
+	add_child(account_service)
+	account_service.status_changed.connect(_on_account_status)
+	account_service.save_loaded.connect(_on_cloud_save_loaded)
+	account_service.signed_in.connect(func(_email: String): account_password.clear())
 
 	_build_world()
 	_build_ui()
@@ -162,6 +182,8 @@ func _toggle_music() -> void:
 func _build_sfx() -> void:
 	var settings = {
 		"pistol": Vector3(0.12, 160.0, 0.50),
+		"sword": Vector3(0.19, 310.0, 0.29),
+		"fist": Vector3(0.11, 75.0, 0.72),
 		"shotgun": Vector3(0.32, 90.0, 0.95),
 		"smg": Vector3(0.09, 230.0, 0.48),
 		"rifle": Vector3(0.15, 130.0, 0.72),
@@ -252,6 +274,8 @@ func _physics_process(delta: float) -> void:
 	round_time_left -= delta
 	_update_camera()
 	_handle_spawning(delta)
+	_update_auto_attacks(delta)
+	_update_clones()
 	_update_hud()
 	if round_time_left <= 0.0:
 		_finish_round()
@@ -381,7 +405,7 @@ func _build_ui() -> void:
 
 	_build_touch_controls(hud)
 
-	menu_panel = _make_center_panel(hud, Vector2(500, 420))
+	menu_panel = _make_center_panel(hud, Vector2(500, 490))
 	var menu_box = VBoxContainer.new()
 	menu_box.add_theme_constant_override("separation", 12)
 	menu_panel.add_child(menu_box)
@@ -415,6 +439,16 @@ func _build_ui() -> void:
 	continue_button.custom_minimum_size = Vector2(0, 48)
 	continue_button.pressed.connect(_continue_game)
 	menu_box.add_child(continue_button)
+	var character_button = Button.new()
+	character_button.text = "내 캐릭터 · 무기 · 보관 아이템"
+	character_button.custom_minimum_size = Vector2(0, 48)
+	character_button.pressed.connect(_show_character_panel)
+	menu_box.add_child(character_button)
+	var account_button = Button.new()
+	account_button.text = "온라인 계정 · 저장"
+	account_button.custom_minimum_size = Vector2(0, 48)
+	account_button.pressed.connect(_show_account_panel)
+	menu_box.add_child(account_button)
 	var menu_rank = Button.new()
 	menu_rank.text = "랭킹 보기"
 	menu_rank.custom_minimum_size = Vector2(0, 48)
@@ -430,7 +464,7 @@ func _build_ui() -> void:
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_box.add_child(controls)
-	game_menu_panel = _make_center_panel(hud, Vector2(430, 285))
+	game_menu_panel = _make_center_panel(hud, Vector2(430, 355))
 	var game_menu_box = VBoxContainer.new()
 	game_menu_box.add_theme_constant_override("separation", 12)
 	game_menu_panel.add_child(game_menu_box)
@@ -454,7 +488,51 @@ func _build_ui() -> void:
 	restart_button.custom_minimum_size = Vector2(0, 56)
 	restart_button.pressed.connect(func(): start_new_game(false))
 	game_menu_box.add_child(restart_button)
+	var game_character_button = Button.new()
+	game_character_button.text = "내 캐릭터"
+	game_character_button.custom_minimum_size = Vector2(0, 52)
+	game_character_button.pressed.connect(_show_character_panel)
+	game_menu_box.add_child(game_character_button)
 	game_menu_panel.hide()
+
+	character_panel = _make_center_panel(hud, Vector2(560, 650))
+	character_box = VBoxContainer.new()
+	character_box.add_theme_constant_override("separation", 8)
+	character_panel.add_child(character_box)
+	character_panel.hide()
+
+	account_panel = _make_center_panel(hud, Vector2(550, 420))
+	var account_box = VBoxContainer.new()
+	account_box.add_theme_constant_override("separation", 10)
+	account_panel.add_child(account_box)
+	var account_title = Label.new()
+	account_title.text = "온라인 계정 · 클라우드 이어하기"
+	account_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	account_box.add_child(account_title)
+	account_email = LineEdit.new()
+	account_email.placeholder_text = "이메일(ID)"
+	account_box.add_child(account_email)
+	account_password = LineEdit.new()
+	account_password.placeholder_text = "비밀번호 (6자 이상)"
+	account_password.secret = true
+	account_box.add_child(account_password)
+	var sign_in_button = Button.new()
+	sign_in_button.text = "로그인"
+	sign_in_button.pressed.connect(func(): account_service.sign_in(account_email.text.strip_edges(), account_password.text))
+	account_box.add_child(sign_in_button)
+	var sign_up_button = Button.new()
+	sign_up_button.text = "새 계정 만들기"
+	sign_up_button.pressed.connect(func(): account_service.sign_up(account_email.text.strip_edges(), account_password.text))
+	account_box.add_child(sign_up_button)
+	account_status = Label.new()
+	account_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	account_status.text = "서버 연결 전: 로컬 저장만 이용할 수 있습니다." if not account_service.configured() else "로그인하면 저장 데이터를 불러옵니다."
+	account_box.add_child(account_status)
+	var account_close = Button.new()
+	account_close.text = "닫기"
+	account_close.pressed.connect(func(): account_panel.hide())
+	account_box.add_child(account_close)
+	account_panel.hide()
 
 	upgrade_panel = _make_center_panel(hud, Vector2(690, 340))
 	var upgrade_box = VBoxContainer.new()
@@ -540,10 +618,18 @@ func _build_ui() -> void:
 	var art_box = VBoxContainer.new()
 	art_box.add_theme_constant_override("separation", 7)
 	art_panel.add_child(art_box)
+	var art_header = HBoxContainer.new()
+	art_box.add_child(art_header)
 	art_title = Label.new()
 	art_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	art_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	art_title.add_theme_font_size_override("font_size", 23)
-	art_box.add_child(art_title)
+	art_header.add_child(art_title)
+	var close_art_top = Button.new()
+	close_art_top.text = "✕ 닫기"
+	close_art_top.custom_minimum_size = Vector2(110, 52)
+	close_art_top.pressed.connect(_close_art_panel)
+	art_header.add_child(close_art_top)
 	art_image = TextureRect.new()
 	art_image.custom_minimum_size = Vector2(1000, 530)
 	art_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -579,14 +665,88 @@ func _show_art_sheet(index: int) -> void:
 func _close_art_panel() -> void:
 	art_panel.hide()
 
+func _show_character_panel() -> void:
+	_refresh_character_panel()
+	character_panel.show()
+	if game_active:
+		gameplay_paused = true
+
+func _show_account_panel() -> void:
+	account_panel.show()
+
+func _on_account_status(message: String) -> void:
+	account_status.text = message
+
+func _on_cloud_save_loaded(data: Dictionary) -> void:
+	if save_manager.save_checkpoint(data):
+		continue_button.disabled = false
+
+func _close_character_panel() -> void:
+	character_panel.hide()
+	if game_active and not upgrade_panel.visible and not game_menu_panel.visible:
+		gameplay_paused = false
+
+func _refresh_character_panel() -> void:
+	for child in character_box.get_children():
+		child.queue_free()
+	var title = Label.new()
+	title.text = "내 캐릭터 · LV %d" % level
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	character_box.add_child(title)
+	var stats = Label.new()
+	stats.text = "HP %d/%d · 분신 %d명 · 특수무기 최대 2개" % [int(player.hp) if player != null else 100, int(player.max_hp) if player != null else 100, int(upgrades.get("clone", 0))]
+	character_box.add_child(stats)
+	for id in ["pistol", "sword", "fist"]:
+		var weapon_button = Button.new()
+		weapon_button.text = "기본 무기: %s%s" % [str(weapon_data[id]["name"]), " ✓" if player != null and player.base_weapon_id == id else ""]
+		weapon_button.disabled = player == null
+		weapon_button.pressed.connect(_choose_character_weapon.bind(id))
+		character_box.add_child(weapon_button)
+	var inventory_label = Label.new()
+	inventory_label.text = "보관 아이템 (눌러서 사용)"
+	character_box.add_child(inventory_label)
+	var names = {"heal":"응급 키트", "speed":"이동 강화", "damage":"공격 강화", "armor":"방어 강화", "invuln":"무적"}
+	for id in names.keys():
+		var count = int(player.item_inventory.get(id, 0)) if player != null else 0
+		var item_button = Button.new()
+		item_button.text = "%s × %d" % [names[id], count]
+		item_button.disabled = player == null or count <= 0 or not game_active
+		item_button.pressed.connect(_use_character_item.bind(id))
+		character_box.add_child(item_button)
+	var close_button = Button.new()
+	close_button.text = "닫기"
+	close_button.pressed.connect(_close_character_panel)
+	character_box.add_child(close_button)
+
+func _choose_character_weapon(id: String) -> void:
+	if player != null:
+		player.select_base_weapon(id)
+	_refresh_character_panel()
+
+func _use_character_item(id: String) -> void:
+	if player != null and player.use_stored_item(id):
+		_refresh_character_panel()
+
 func _build_touch_controls(hud: Control) -> void:
 	touch_controls = Control.new()
 	touch_controls.set_anchors_preset(Control.PRESET_FULL_RECT)
 	touch_controls.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(touch_controls)
 
-	touch_left_zone = _make_touch_zone("이동 · 조준\n자동 사격", Vector2(26, 478), Vector2(280, 280))
-	touch_controls.add_child(touch_left_zone)
+	touch_hit_zone = Control.new()
+	touch_hit_zone.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	touch_controls.add_child(touch_hit_zone)
+	touch_left_zone = _make_touch_zone("", Vector2.ZERO, Vector2(280, 280))
+	touch_hit_zone.add_child(touch_left_zone)
+	var stick_dot = PanelContainer.new()
+	stick_dot.size = Vector2(70, 70)
+	stick_dot.position = Vector2(105, 105)
+	stick_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var dot_style = StyleBoxFlat.new()
+	dot_style.bg_color = Color(0.45, 0.90, 1.0, 0.38)
+	dot_style.set_corner_radius_all(35)
+	stick_dot.add_theme_stylebox_override("panel", dot_style)
+	touch_left_zone.add_child(stick_dot)
 
 	var button_names = ["1 기본", "2 특수", "3 특수", "R 재장전"]
 	for i in range(button_names.size()):
@@ -643,13 +803,15 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 		panel.position = (view_size - panel.size * panel_scale) * 0.5
 	if touch_left_zone == null:
 		return
-	var stick_scale = 1.45 if mobile and portrait else (1.15 if mobile else 1.0)
-	var stick_size = 280.0 * stick_scale
-	touch_left_zone.scale = Vector2.ONE * stick_scale
-	touch_left_zone.position = Vector2(32.0, view_size.y - stick_size - 36.0)
+	var hit_size = 410.0 if mobile and portrait else (340.0 if mobile else 280.0)
+	var stick_size = hit_size * 0.30
+	touch_hit_zone.size = Vector2.ONE * hit_size
+	touch_hit_zone.position = Vector2((view_size.x - hit_size) * 0.5, view_size.y - hit_size - 32.0)
+	touch_left_zone.scale = Vector2.ONE * (stick_size / 280.0)
+	touch_left_zone.position = Vector2.ONE * ((hit_size - stick_size) * 0.5)
 	var weapon_scale = 1.85 if mobile and portrait else (1.25 if mobile else 1.0)
 	var row_width = (4.0 * 100.0 + 3.0 * 8.0) * weapon_scale
-	var row_y = view_size.y - stick_size - 54.0 * weapon_scale - 58.0
+	var row_y = view_size.y - hit_size - 54.0 * weapon_scale - 58.0
 	for i in range(touch_weapon_buttons.size()):
 		var button = touch_weapon_buttons[i]
 		button.scale = Vector2.ONE * weapon_scale
@@ -661,8 +823,8 @@ func _make_touch_zone(text: String, position: Vector2, size: Vector2) -> PanelCo
 	panel.size = size
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.08, 0.10, 0.20)
-	style.border_color = Color(0.65, 0.82, 0.95, 0.40)
+	style.bg_color = Color(0.05, 0.08, 0.10, 0.04)
+	style.border_color = Color(0.65, 0.82, 0.95, 0.62)
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(104)
 	panel.add_theme_stylebox_override("panel", style)
@@ -714,6 +876,8 @@ func _show_main_menu() -> void:
 	game_active = false
 	game_menu_button.hide()
 	game_menu_panel.hide()
+	character_panel.hide()
+	account_panel.hide()
 	_on_viewport_resized()
 	_switch_music(false)
 	gameplay_paused = false
@@ -741,6 +905,8 @@ func start_new_game(from_checkpoint: bool) -> void:
 	game_active = true
 	game_menu_button.show()
 	game_menu_panel.hide()
+	character_panel.hide()
+	account_panel.hide()
 	pause_button.text = "일시정지"
 	_on_viewport_resized()
 	_switch_music(true)
@@ -755,7 +921,9 @@ func start_new_game(from_checkpoint: bool) -> void:
 	pending_levelups = 0
 	upgrades = {
 		"damage":0, "fire_rate":0, "move_speed":0, "vitality":0,
-		"pickup":0, "flame":0, "explosive":0, "energy":0
+		"pickup":0, "flame":0, "explosive":0, "energy":0,
+		"auto_orbit":0, "auto_shock":0, "auto_flame":0,
+		"auto_blade":0, "auto_missile":0, "clone":0
 	}
 
 	player = PlayerScript.new()
@@ -775,6 +943,7 @@ func start_new_game(from_checkpoint: bool) -> void:
 			xp_needed = int(data.get("xp_needed", 80))
 			upgrades = data.get("upgrades", upgrades).duplicate(true)
 			player.restore_save_data(data.get("player", {}))
+	_rebuild_clones()
 	max_round_reached = round_number
 	_start_round()
 
@@ -802,8 +971,7 @@ func _finish_round() -> void:
 		score += 100000
 		_end_run(true)
 		return
-	if round_number % 10 == 0:
-		_save_checkpoint(round_number + 1)
+	_save_checkpoint(round_number + 1)
 	round_number += 1
 	_start_round()
 
@@ -820,6 +988,7 @@ func _save_checkpoint(next_round: int) -> void:
 	}
 	if save_manager.save_checkpoint(data):
 		save_label.text = "체크포인트 저장: ROUND %d" % next_round
+		account_service.upload_save(data)
 	else:
 		save_label.text = "저장 실패"
 
@@ -957,6 +1126,12 @@ func fire_weapon(shooter: Node3D, weapon_id: String) -> bool:
 	var max_range = float(data.get("range", 20.0))
 
 	match weapon_id:
+		"sword":
+			_fire_cone(start, forward, max_range, 0.90, damage, false)
+			_make_burst(start + forward * 2.4, Color(0.70, 0.92, 1.0), 1.6)
+		"fist":
+			_fire_cone(start, forward, max_range, 0.26, damage, false)
+			_make_burst(start + forward, Color(1.0, 0.72, 0.30), 0.55)
 		"shotgun":
 			_fire_cone(start, forward, max_range, 0.34, damage, true)
 			for angle in [-0.18, -0.09, 0.0, 0.09, 0.18]:
@@ -1003,6 +1178,79 @@ func _obstacle_endpoint(start: Vector3, end: Vector3) -> Vector3:
 func _line_of_sight(start: Vector3, target: Vector3) -> bool:
 	var level_target = Vector3(target.x, start.y, target.z)
 	return _obstacle_endpoint(start, level_target).distance_to(start) >= level_target.distance_to(start) - 0.1
+
+func find_nearest_zombie(origin: Vector3, max_distance: float) -> Node3D:
+	var nearest: Node3D
+	var best_distance = max_distance
+	for candidate in get_tree().get_nodes_in_group("zombie"):
+		if not is_instance_valid(candidate) or candidate.dead:
+			continue
+		var distance = origin.distance_to(candidate.global_position)
+		if distance < best_distance and _line_of_sight(origin + Vector3.UP * 0.65, candidate.global_position):
+			nearest = candidate
+			best_distance = distance
+	return nearest
+
+func _update_auto_attacks(delta: float) -> void:
+	auto_attack_elapsed += delta
+	if auto_attack_elapsed < 0.52 or player == null:
+		return
+	auto_attack_elapsed = 0.0
+	var origin: Vector3 = player.global_position
+	for id in ["auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile"]:
+		var lv = int(upgrades.get(id, 0))
+		if lv <= 0:
+			continue
+		var radius = 5.0 + lv * 0.9
+		if id == "auto_missile": radius += 6.0
+		var target = find_nearest_zombie(origin, radius)
+		if target == null:
+			continue
+		var hit: Vector3 = target.global_position + Vector3.UP * 0.7
+		var damage = (9.0 + 6.0 * lv) * get_player_damage_multiplier()
+		match id:
+			"auto_orbit":
+				_make_tracer(origin + Vector3.UP * 1.3, hit, Color(0.3, 0.85, 1.0), 45.0, 0.09)
+			"auto_shock":
+				_make_beam(origin + Vector3.UP, hit, Color(0.4, 0.4, 1.0), 0.16, 0.12)
+			"auto_flame":
+				_make_burst(hit, Color(1.0, 0.32, 0.03), 1.1 + lv * 0.1)
+			"auto_blade":
+				_make_burst(hit, Color(0.86, 0.96, 1.0), 0.85 + lv * 0.13)
+			"auto_missile":
+				_make_tracer(origin + Vector3.UP, hit, Color(1.0, 0.58, 0.13), 27.0, 0.2)
+				_explosion(hit, 1.0 + lv * 0.25, damage * 0.6)
+		target.take_damage(damage)
+	for clone in clone_visuals:
+		if not is_instance_valid(clone):
+			continue
+		var enemy = find_nearest_zombie(clone.global_position, 16.0)
+		if enemy != null:
+			var end = _fire_line(clone.global_position + Vector3.UP * 0.6, (enemy.global_position - clone.global_position).normalized(), 16.0, 0.35, 6.0 * get_player_damage_multiplier(), false)
+			_make_tracer(clone.global_position + Vector3.UP * 0.6, end, Color(0.85, 0.6, 1.0), 38.0, 0.07)
+
+func _rebuild_clones() -> void:
+	for old in clone_visuals:
+		if is_instance_valid(old): old.queue_free()
+	clone_visuals.clear()
+	if player == null:
+		return
+	for i in range(clamp(int(upgrades.get("clone", 0)), 0, 2)):
+		var clone = VisualFactory.player_visual()
+		clone.scale = Vector3.ONE * 1.12
+		add_child(clone)
+		clone.global_position = player.global_position + Vector3(-2.0 if i == 0 else 2.0, 0, 1.5)
+		clone_visuals.append(clone)
+
+func _update_clones() -> void:
+	if player == null:
+		return
+	for i in range(clone_visuals.size()):
+		var clone = clone_visuals[i]
+		if not is_instance_valid(clone): continue
+		var target = player.global_position + Vector3(-2.0 if i == 0 else 2.0, 0, 1.5)
+		clone.global_position = clone.global_position.lerp(target, 0.11)
+		clone.rotation.y = player.rotation.y
 
 func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float, damage: float, penetrate: bool) -> Vector3:
 	var end = _obstacle_endpoint(start, start + forward * max_range)
@@ -1171,7 +1419,8 @@ func _add_xp(amount: int) -> void:
 func _open_upgrade_choice() -> void:
 	var available: Array[String] = []
 	for id in upgrades.keys():
-		if int(upgrades[id]) < 4:
+		var max_level = 2 if id == "clone" else (5 if str(id).begins_with("auto_") else 4)
+		if int(upgrades[id]) < max_level:
 			available.append(str(id))
 	if available.is_empty():
 		pending_levelups = 0
@@ -1197,17 +1446,26 @@ func _upgrade_option_text(id: String) -> String:
 	var names = {
 		"damage":"화력", "fire_rate":"연사", "move_speed":"기동",
 		"vitality":"생존력", "pickup":"자석", "flame":"화염 숙련",
-		"explosive":"폭발 숙련", "energy":"에너지 숙련"
+		"explosive":"폭발 숙련", "energy":"에너지 숙련",
+		"auto_orbit":"궤도 드론", "auto_shock":"전기 충격", "auto_flame":"화염 고리",
+		"auto_blade":"회전 칼날", "auto_missile":"추적 미사일", "clone":"분신"
 	}
 	var suffix = " I"
 	if next_level == 2: suffix = " II"
 	elif next_level == 3: suffix = " III"
-	elif next_level >= 4: suffix = " ★ 진화"
+	elif next_level == 4: suffix = " IV"
+	elif next_level >= 5: suffix = " V"
 	return "%s%s\n%s" % [str(names.get(id,id)), suffix, _upgrade_description(id, next_level)]
 
 func _upgrade_description(id: String, next_level: int) -> String:
 	var evolved = next_level >= 4
 	match id:
+		"clone": return "분신 +1명 (플레이어 포함 최대 3명)"
+		"auto_orbit": return "주변 적 자동 추적 사격 · 최대 5레벨"
+		"auto_shock": return "가까운 적에게 자동 전기 충격 · 최대 5레벨"
+		"auto_flame": return "주변 적에게 자동 화염 피해 · 최대 5레벨"
+		"auto_blade": return "회전 칼날로 넓은 범위 공격 · 최대 5레벨"
+		"auto_missile": return "적을 찾아 폭발하는 미사일 · 최대 5레벨"
 		"damage": return "모든 무기 피해 증가" if not evolved else "오버차지: 큰 피해 증가 + 돌격소총 관통"
 		"fire_rate": return "모든 무기 연사속도 증가" if not evolved else "오버드라이브: 추가 연사 증가"
 		"move_speed": return "이동속도 증가" if not evolved else "팬텀 스텝: 추가 이동 증가"
@@ -1225,6 +1483,10 @@ func _on_upgrade_selected(index: int) -> void:
 	if id.is_empty():
 		return
 	_apply_upgrade(id)
+	_save_checkpoint(round_number)
+	if player != null:
+		for i in range(5):
+			_make_burst(player.global_position + Vector3(randf_range(-2.0, 2.0), randf_range(0.0, 2.0), randf_range(-2.0, 2.0)), Color.from_hsv(randf(), 0.75, 1.0), 1.0 + i * 0.3)
 	pending_levelups = max(pending_levelups - 1, 0)
 	upgrade_panel.hide()
 	gameplay_paused = false
@@ -1232,7 +1494,8 @@ func _on_upgrade_selected(index: int) -> void:
 		_open_upgrade_choice()
 
 func _apply_upgrade(id: String) -> void:
-	upgrades[id] = min(int(upgrades.get(id, 0)) + 1, 4)
+	var max_level = 2 if id == "clone" else (5 if id.begins_with("auto_") else 4)
+	upgrades[id] = min(int(upgrades.get(id, 0)) + 1, max_level)
 	var lv = int(upgrades[id])
 	if id == "vitality" and player != null:
 		if lv < 4:
@@ -1241,6 +1504,8 @@ func _apply_upgrade(id: String) -> void:
 		else:
 			player.max_hp += 40.0
 			player.hp = player.max_hp
+	if id == "clone":
+		_rebuild_clones()
 
 func get_player_damage_multiplier() -> float:
 	var lv = int(upgrades.get("damage", 0))
@@ -1371,6 +1636,7 @@ func collect_pickup(pickup: Node, body: Node) -> void:
 		return
 	if pickup.pickup_kind == "weapon":
 		player.acquire_weapon(pickup.payload)
+		_save_checkpoint(round_number)
 	else:
 		match pickup.payload:
 			"bomb":
@@ -1380,7 +1646,8 @@ func collect_pickup(pickup: Node, body: Node) -> void:
 			"xp_burst":
 				_add_xp(80 + round_number * 2)
 			_:
-				player.apply_item(pickup.payload)
+				player.store_item(pickup.payload)
+				_save_checkpoint(round_number)
 	pickup.queue_free()
 
 func on_player_dead() -> void:
@@ -1510,6 +1777,8 @@ func _update_hud() -> void:
 		var ammo = ""
 		if weapon_id == "pistol":
 			ammo = "%d / ∞%s" % [player.base_mag, " · RELOAD" if player.reloading else ""]
+		elif weapon_id in ["sword", "fist"]:
+			ammo = "무제한"
 		else:
 			ammo = "%d" % player.current_special_ammo()
 		var slot1 = "-"
@@ -1540,6 +1809,9 @@ func _clear_zombies_and_pickups() -> void:
 			child.queue_free()
 
 func _clear_dynamic_entities() -> void:
+	for clone in clone_visuals:
+		if is_instance_valid(clone): clone.queue_free()
+	clone_visuals.clear()
 	_clear_zombies_and_pickups()
 	if player != null and is_instance_valid(player):
 		player.queue_free()
