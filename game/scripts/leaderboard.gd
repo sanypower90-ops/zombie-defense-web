@@ -12,6 +12,11 @@ var _post_request: HTTPRequest
 func _ready() -> void:
 	_get_request = HTTPRequest.new()
 	_post_request = HTTPRequest.new()
+	# Browsers decode HTTP compression before passing the response to Godot.
+	# Avoid attempting to decompress the same JSON payload a second time on Web.
+	if OS.has_feature("web"):
+		_get_request.accept_gzip = false
+		_post_request.accept_gzip = false
 	add_child(_get_request)
 	add_child(_post_request)
 	_get_request.request_completed.connect(_on_get_completed)
@@ -55,12 +60,14 @@ func submit_score(nickname: String, score: int, max_round: int, kills: int) -> v
 	if err != OK:
 		submit_done.emit(false, "온라인 제출 실패. 다시 시도해 주세요.")
 
-func _on_get_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
-	if response_code < 200 or response_code >= 300:
+func _on_get_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
+		push_warning("Leaderboard fetch failed: result=%d status=%d bytes=%d" % [result, response_code, body.size()])
 		top10_ready.emit([], false, "온라인 랭킹 응답 오류")
 		return
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_ARRAY:
+		push_warning("Leaderboard JSON is not an array: status=%d bytes=%d preview=%s" % [response_code, body.size(), body.get_string_from_utf8().left(100)])
 		top10_ready.emit([], false, "온라인 랭킹 형식 오류")
 		return
 	var entries: Array = parsed
