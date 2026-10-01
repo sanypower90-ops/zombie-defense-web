@@ -9,6 +9,8 @@ const AccountServiceScript = preload("res://scripts/account_service.gd")
 const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
+const MeleeEffect = preload("res://scripts/melee_effect.gd")
+const GROUND_TEXTURE = preload("res://assets/sprites/ground_v7.png")
 const ShockTrap = preload("res://scripts/shock_trap.gd")
 const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
 const OrbitGuard = preload("res://scripts/orbit_guard.gd")
@@ -85,8 +87,8 @@ var upgrades = {
 
 var weapon_data = {
 	"pistol": {"name":"기본 권총", "damage":20.0, "fire_rate":3.0, "range":24.0, "ammo_max":-1},
-	"sword": {"name":"장검", "damage":18.0, "fire_rate":2.0, "range":5.5, "ammo_max":-1},
-	"fist": {"name":"짧은 주먹", "damage":22.0, "fire_rate":7.0, "range":1.8, "ammo_max":-1},
+	"sword": {"name":"장검", "damage":18.0, "fire_rate":2.0, "range":7.15, "ammo_max":-1},
+	"fist": {"name":"짧은 주먹", "damage":22.0, "fire_rate":7.0, "range":2.34, "ammo_max":-1},
 	"shotgun": {"name":"샷건", "damage":30.0, "fire_rate":1.15, "range":11.0, "ammo_max":30},
 	"smg": {"name":"기관단총", "damage":16.0, "fire_rate":10.0, "range":20.0, "ammo_max":180},
 	"rifle": {"name":"돌격소총", "damage":30.0, "fire_rate":6.0, "range":26.0, "ammo_max":120},
@@ -318,18 +320,24 @@ func _build_world() -> void:
 	plane.size = Vector2(80.0, 80.0)
 	ground_mesh.mesh = plane
 	var ground_mat = StandardMaterial3D.new()
-	ground_mat.albedo_color = Color(0.12, 0.10, 0.19)
+	ground_mesh.name = "IllustratedGround"
+	ground_mat.albedo_color = Color(.8,.85,.95)
+	ground_mat.albedo_texture = GROUND_TEXTURE
+	ground_mat.texture_repeat = true
+	ground_mat.uv1_scale = Vector3(10,10,1)
 	ground_mat.roughness = 0.95
 	ground_mesh.material_override = ground_mat
 	ground.add_child(ground_mesh)
 	add_child(ground)
 
 	# Asphalt strip and lane markings follow the supplied top-down road reference.
-	VisualFactory.box(self, Vector3(8.0, 0.012, 0), Vector3(14.0, 0.02, 76.0), Color(0.16, 0.14, 0.25))
+	var road = VisualFactory.box(self, Vector3(8.0, 0.012, 0), Vector3(14.0, 0.02, 76.0), Color(.65,.7,.8))
+	road.material_override.albedo_texture = GROUND_TEXTURE
+	road.material_override.uv1_scale = Vector3(2,12,1)
 	for z in range(-36, 38, 6):
-		VisualFactory.neon_box(self, Vector3(8.0, 0.031, float(z)), Vector3(0.16, 0.025, 2.6), Color(0.46, 0.87, 1.0))
-	VisualFactory.neon_box(self, Vector3(1.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(0.95, 0.42, 0.86))
-	VisualFactory.neon_box(self, Vector3(15.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(0.39, 0.86, 1.0))
+		VisualFactory.box(self, Vector3(8.0, 0.031, float(z)), Vector3(0.16, 0.025, 2.6), Color(.46,.52,.56))
+	VisualFactory.box(self, Vector3(1.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(.38,.4,.45))
+	VisualFactory.box(self, Vector3(15.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(.38,.4,.45))
 
 	_make_prop("car", Vector3(-14, 1.0, -8), Vector3(5.5, 2.0, 2.3), Color(0.13,0.23,0.32))
 	_make_prop("barrier", Vector3(13, 1.1, 7), Vector3(6.0, 2.2, 2.5), Color(0.42,0.42,0.38))
@@ -1342,7 +1350,7 @@ func fire_weapon(shooter: Node3D, weapon_id: String) -> bool:
 			_show_melee_slash(start, forward, max_range)
 		"fist":
 			_fire_cone(start, forward, max_range, 0.26, damage, false)
-			_make_burst(start + forward, Color(1.0, 0.72, 0.30), 0.55)
+			_show_melee_effect("fist",start,forward,max_range)
 		"shotgun":
 			_fire_cone(start, forward, max_range, 0.34, damage, true)
 			for angle in [-0.18, -0.09, 0.0, 0.09, 0.18]:
@@ -1403,14 +1411,13 @@ func find_nearest_zombie(origin: Vector3, max_distance: float) -> Node3D:
 	return nearest
 
 func _show_melee_slash(start: Vector3, forward: Vector3, reach: float) -> void:
-	var slash = SpriteVisuals.make_attack_sprite("auto_blade", true, reach * 1.2)
-	add_child(slash)
-	slash.global_position = start + forward * reach * .45
-	SpriteVisuals.align_fx(slash, camera, forward)
-	var tween = create_tween()
-	tween.tween_property(slash, "rotation:z", slash.rotation.z + PI * .8, .18)
-	tween.parallel().tween_property(slash, "modulate:a", 0.0, .23)
-	tween.tween_callback(slash.queue_free)
+	_show_melee_effect("sword",start,forward,reach)
+
+func _show_melee_effect(id: String, start: Vector3, forward: Vector3, reach: float) -> Node3D:
+	var effect = MeleeEffect.new()
+	add_child(effect)
+	effect.setup(self,id,start,forward,reach)
+	return effect
 
 func get_auto_attack_range(id: String, lv: int) -> float:
 	if id == "auto_blade": return 3.0
@@ -2138,7 +2145,7 @@ func _update_weapon_buttons() -> void:
 	touch_weapon_buttons[3].disabled = player.selected_slot != 0 or player.base_weapon_id != "pistol" or player.reloading or player.base_mag >= player.base_mag_max
 
 func _clear_zombies_and_pickups() -> void:
-	for group in ["boss_projectile", "ability_projectile", "shock_trap"]:
+	for group in ["boss_projectile", "ability_projectile", "shock_trap", "melee_effect"]:
 		for projectile in get_tree().get_nodes_in_group(group):
 			projectile.queue_free()
 	for z in get_tree().get_nodes_in_group("zombie"):

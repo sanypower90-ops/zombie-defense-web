@@ -5,6 +5,10 @@ const FLIGHT = preload("res://assets/sprites/flight_v5.png")
 const ZOMBIES_V5 = preload("res://assets/sprites/zombies_v5.png")
 const HEAVY_V5 = preload("res://assets/sprites/heavy_v5.png")
 const PROPS_V5 = preload("res://assets/sprites/props_v5.png")
+const GRIPS_A = preload("res://assets/sprites/grips_a_v7.png")
+const GRIPS_B = preload("res://assets/sprites/grips_b_v7.png")
+const MELEE_FX = preload("res://assets/sprites/melee_fx_v7.png")
+const GUN_IDS = ["pistol","shotgun","smg","rifle","lmg","grenade","flamethrower","sniper","rocket","laser"]
 const MELEE = preload("res://assets/sprites/player_melee_v6.png")
 const MELEE_BACK = preload("res://assets/sprites/player_melee_back_v6.png")
 const PLAYER = preload("res://assets/sprites/player_directional_v2.png")
@@ -24,13 +28,14 @@ static var _atlas_cache: Dictionary = {}
 static var _source_images: Dictionary = {}
 static var _regions: Dictionary = {}
 static var _walk_regions: Array = []
+static var _grip_regions: Dictionary = {}
 
 static func _frame(source: Texture2D, rect: Rect2, character: bool = false) -> ImageTexture:
 	var key = "%s:%s:%s" % [source.resource_path, str(rect), str(character)]
 	if not _atlas_cache.has(key):
 		if not _source_images.has(source.resource_path):
 			var original = source.get_image()
-			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5, MELEE, MELEE_BACK]:
+			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5, MELEE, MELEE_BACK, GRIPS_A, GRIPS_B, MELEE_FX]:
 				original.convert(Image.FORMAT_RGBA8)
 				var pixels = original.get_data()
 				# Barely visible alpha noise must not expand a frame's bounds.
@@ -172,7 +177,9 @@ static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: fl
 		var row = (0 if weapon_id == "sword" else 2) + (1 if side else 0)
 		var frame = clampi(int((1.0-recoil) * 4.0),1,3) if recoil > .05 else 0
 		if weapon_id == "fist" and recoil > .05: frame = 1 if strike % 2 == 0 else 3
-		sprite.texture = melee_frame(back, row, frame)
+		if motion > .05 and recoil <= .05 and weapon_id == "sword": frame = 3
+		var body = melee_frame(back,row,frame)
+		sprite.texture = walking_melee(body,direction,phase) if motion > .05 else body
 		sprite.position.y = .67 + sin(phase * 2) * .035 * motion
 		return
 	sprite.flip_h = false
@@ -180,7 +187,54 @@ static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: fl
 	# Shooting no longer replaces moving legs with a frozen standing pose.
 	var action = "walk" if motion > 0.05 else ("hit" if hurt else ("attack" if recoil > 0.08 else "idle"))
 	var frame = int(floor(phase / TAU * 4.0))
-	sprite.texture = _player_frame(direction, action, frame)
+	sprite.texture = armed_frame(direction,action,frame,weapon_id)
+	sprite.position.y = .67 + sin(phase*2) * .025 * motion
+
+static func walking_melee(body: ImageTexture, direction: int, phase: float) -> ImageTexture:
+	var frame = int(floor(phase / TAU * 4))
+	var key = "melee-walk:%d:%d:%d" % [body.get_instance_id(),direction,posmod(frame,4)]
+	if not _atlas_cache.has(key):
+		var image = body.get_image()
+		var legs = _player_frame(direction,"walk",frame).get_image()
+		image.blit_rect(legs,Rect2i(0,98,160,46),Vector2i(0,98))
+		_atlas_cache[key] = ImageTexture.create_from_image(image)
+	return _atlas_cache[key]
+
+static func grip_region(source: Texture2D, row: int, view: int) -> Rect2:
+	if _grip_regions.is_empty():
+		_grip_regions = JSON.parse_string(FileAccess.get_file_as_string("res://assets/sprites/grip_regions_v7.json"))
+	var sheet = "grips_a_v7" if source == GRIPS_A else "grips_b_v7"
+	var bounds: Array = _grip_regions[sheet][row][view]
+	return Rect2(bounds[0],bounds[1],bounds[2],bounds[3])
+
+static func armed_frame(direction: int, action: String, frame: int, weapon_id: String) -> ImageTexture:
+	var weapon = GUN_IDS.find(weapon_id)
+	if weapon < 0: weapon = 0
+	var view = 2 if direction in [3,4,5] else (0 if direction in [0,7] else 1)
+	var key = "armed-v7:%d:%d:%s:%d" % [weapon,direction,action,posmod(frame,4)]
+	if not _atlas_cache.has(key):
+		var image = _player_frame(direction,action,frame).get_image()
+		image.fill_rect(Rect2i(0,0,160,94),Color.TRANSPARENT)
+		var source = GRIPS_A if weapon < 5 else GRIPS_B
+		var torso = _frame(source,grip_region(source,weapon%5,view)).get_image()
+		torso = _isolate_character(torso)
+		torso = torso.get_region(torso.get_used_rect())
+		if direction in [5,6,7]: torso.flip_x()
+		# Anchor the jacket hem to the walking hips, rather than centering a long barrel.
+		var hip_sum = 0.0
+		var hip_count = 0
+		for y in range(maxi(0,torso.get_height()-18),torso.get_height()):
+			for x in range(torso.get_width()):
+				if torso.get_pixel(x,y).a > .2:
+					hip_sum += x
+					hip_count += 1
+		var hip = hip_sum / maxf(1,hip_count)
+		var span = maxf(hip,torso.get_width()-hip)
+		var factor = minf(76.0/torso.get_height(),76.0/maxf(1,span))
+		torso.resize(maxi(1,int(torso.get_width()*factor)),maxi(1,int(torso.get_height()*factor)),Image.INTERPOLATE_LANCZOS)
+		image.blend_rect(torso,Rect2i(Vector2i.ZERO,torso.get_size()),Vector2i(int(80-hip*factor),98-torso.get_height()))
+		_atlas_cache[key] = ImageTexture.create_from_image(image)
+	return _atlas_cache[key]
 
 static func melee_frame(back: bool, row: int, frame: int) -> ImageTexture:
 	var source = MELEE_BACK if back else MELEE

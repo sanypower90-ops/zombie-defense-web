@@ -99,7 +99,7 @@ func _physics_process(delta: float) -> void:
 		visual_weapon_id = weapon_id
 		VisualFactory.set_player_weapon(weapon_mount, weapon_id)
 		SpriteVisuals.set_weapon_icon(weapon_icon, weapon_id)
-	_move_player()
+	_move_player(delta)
 	_aim_at_pointer()
 	_handle_fire()
 	var motion = clamp(velocity.length() / max(base_move_speed, 0.01), 0.0, 1.0)
@@ -178,7 +178,7 @@ func _stick_vector(origin: Vector2, position: Vector2) -> Vector2:
 		return Vector2.ZERO
 	return value
 
-func _move_player() -> void:
+func _move_player(delta: float) -> void:
 	# Physical-key checks keep WASD working even with a Korean/alternate keyboard layout.
 	var keyboard = Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): keyboard.x -= 1.0
@@ -195,7 +195,7 @@ func _move_player() -> void:
 	var now = Time.get_ticks_msec() / 1000.0
 	if now < speed_buff_until:
 		speed *= 1.25
-	velocity = dir * speed
+	velocity = velocity.move_toward(dir * speed, (42.0 if dir.length_squared() < .001 else 30.0) * delta)
 	move_and_slide()
 	var p = global_position
 	p.x = clamp(p.x, -36.0, 36.0)

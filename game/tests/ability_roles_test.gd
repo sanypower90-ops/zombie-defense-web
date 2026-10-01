@@ -46,8 +46,9 @@ func run_checks() -> void:
 	trap.pulse = .8
 	trap.advance(0)
 	if not check(enemies[0].hp < hp and enemies[0].shock_left > 0,"Trap must damage and briefly stun an enemy"): return
+	var flame_before: float = enemies[1].hp
 	game.resolve_ability_impact("auto_flame", enemies[1].position, enemies[1],50,0,true)
-	if not check(enemies[1].hp == 950,"Flame must apply single-target damage"): return
+	if not check(is_equal_approx(flame_before - enemies[1].hp,50),"Flame must apply single-target damage"): return
 	enemies[2].position = enemies[1].position + Vector3(.5,0,0)
 	hp = enemies[2].hp
 	game.resolve_ability_impact("auto_missile", enemies[1].position,enemies[1],30,3,true)

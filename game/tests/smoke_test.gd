@@ -223,6 +223,8 @@ func _run() -> void:
 		push_error("The base fist damage is wrong")
 		quit(1)
 		return
+	# Isolate this restore check from randomly collected healing pickups.
+	game.player.item_inventory.clear()
 	game.player.store_item("heal")
 	var checkpoint = game.player.get_save_data()
 	game.player.item_inventory.clear()
