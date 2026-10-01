@@ -10,6 +10,7 @@ const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
 const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
+const BossProjectile = preload("res://scripts/boss_projectile.gd")
 
 const ROUND_DURATION := 30.0
 const MAX_ROUND := 100
@@ -48,6 +49,11 @@ var spawn_target = 0
 var spawn_accumulator = 0.0
 var spawn_interval = 1.0
 var boss_spawned = false
+var boss_elapsed := 0.0
+var boss_hud: VBoxContainer
+var boss_health_label: Label
+var boss_health_bar: ProgressBar
+var hurt_voice: AudioStreamPlayer
 
 var score = 0
 var kills = 0
@@ -189,61 +195,17 @@ func _toggle_music() -> void:
 		gameplay_music.stop()
 
 func _build_sfx() -> void:
-	var settings = {
-		"pistol": Vector3(0.12, 160.0, 0.50),
-		"sword": Vector3(0.19, 310.0, 0.29),
-		"fist": Vector3(0.11, 75.0, 0.72),
-		"shotgun": Vector3(0.32, 90.0, 0.95),
-		"smg": Vector3(0.09, 230.0, 0.48),
-		"rifle": Vector3(0.15, 130.0, 0.72),
-		"lmg": Vector3(0.19, 80.0, 0.82),
-		"grenade": Vector3(0.30, 65.0, 0.74),
-		"flamethrower": Vector3(0.16, 45.0, 0.26),
-		"sniper": Vector3(0.39, 115.0, 0.95),
-		"rocket": Vector3(0.42, 55.0, 0.88),
-		"laser": Vector3(0.48, 480.0, 0.50),
-		"zombie": Vector3(0.28, 95.0, 0.78)
-	}
-	for sound_id in settings:
-		sfx_streams[sound_id] = _make_sfx_stream(str(sound_id), settings[sound_id])
-	for i in range(16):
+	for sound_id in ["pistol", "sword", "fist", "shotgun", "smg", "rifle", "lmg", "grenade", "flamethrower", "sniper", "rocket", "laser", "zombie", "player_hurt", "boss_warning", "boss_launch"]:
+		sfx_streams[sound_id] = load("res://assets/audio/sfx/%s.wav" % sound_id)
+	for i in range(24):
 		var voice = AudioStreamPlayer.new()
-		voice.volume_db = -12.0
+		voice.volume_db = -9.0
 		add_child(voice)
 		sfx_players.append(voice)
-
-func _make_sfx_stream(sound_id: String, shape: Vector3) -> AudioStreamWAV:
-	var sample_rate := 22050
-	var sample_count := int(shape.x * sample_rate)
-	var pcm = PackedByteArray()
-	pcm.resize(sample_count * 2)
-	var rng = RandomNumberGenerator.new()
-	rng.seed = sound_id.hash()
-	var phase := 0.0
-	for i in range(sample_count):
-		var t = float(i) / float(sample_rate)
-		var progress = float(i) / float(sample_count)
-		var envelope = pow(1.0 - progress, 2.0) * min(t * 220.0, 1.0)
-		var noise = rng.randf_range(-1.0, 1.0)
-		var frequency = shape.y * (1.0 - progress * 0.55)
-		if sound_id == "laser":
-			frequency = shape.y * (1.0 + progress * 1.8)
-		elif sound_id == "flamethrower":
-			frequency = shape.y * (1.0 + sin(t * 30.0) * 0.12)
-		phase += TAU * frequency / float(sample_rate)
-		var tone = sin(phase) * (1.0 - shape.z)
-		var sample = (tone + noise * shape.z) * envelope
-		if sound_id == "zombie":
-			sample += sin(phase * 0.44) * envelope * 0.38
-		elif sound_id == "shotgun" or sound_id == "rocket":
-			sample += sin(phase * 0.35) * envelope * 0.32
-		pcm.encode_s16(i * 2, int(clamp(sample * 18000.0, -32767.0, 32767.0)))
-	var stream = AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = sample_rate
-	stream.stereo = false
-	stream.data = pcm
-	return stream
+	hurt_voice = AudioStreamPlayer.new()
+	hurt_voice.stream = sfx_streams["player_hurt"]
+	hurt_voice.volume_db = -5.0
+	add_child(hurt_voice)
 
 func _play_sfx(sound_id: String, pitch: float = 1.0) -> void:
 	if sfx_players.is_empty() or not sfx_streams.has(sound_id):
@@ -257,6 +219,11 @@ func _play_sfx(sound_id: String, pitch: float = 1.0) -> void:
 
 func play_weapon_sfx(weapon_id: String) -> void:
 	_play_sfx(weapon_id)
+
+func play_player_hurt_sfx() -> void:
+	hurt_voice.stop()
+	hurt_voice.play()
+	set_meta("hurt_sound_count", int(get_meta("hurt_sound_count", 0)) + 1)
 
 func play_zombie_death_sfx(kind: String) -> void:
 	var pitch = 1.3 if kind == "runner" or kind == "leaper" else (0.68 if kind == "boss" or kind == "final_boss" else 1.0)
@@ -280,13 +247,16 @@ func _toggle_pause() -> void:
 func _physics_process(delta: float) -> void:
 	if not can_world_update():
 		return
-	round_time_left -= delta
+	if is_boss_round():
+		boss_elapsed += delta
+	else:
+		round_time_left -= delta
 	_update_camera()
 	_handle_spawning(delta)
 	_update_auto_attacks(delta)
 	_update_clones()
 	_update_hud()
-	if round_time_left <= 0.0:
+	if not is_boss_round() and round_time_left <= 0.0:
 		_finish_round()
 
 func _process(_delta: float) -> void:
@@ -414,6 +384,26 @@ func _build_ui() -> void:
 	hud_top_left.add_child(xp_bar)
 	save_label.add_theme_font_size_override("font_size", 16)
 	hud_top_left.add_child(save_label)
+	boss_hud = VBoxContainer.new()
+	boss_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_hud.size = Vector2(500, 58)
+	hud.add_child(boss_hud)
+	boss_health_label = Label.new()
+	boss_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_health_label.add_theme_font_size_override("font_size", 20)
+	boss_health_label.add_theme_font_override("font", bold_font)
+	boss_health_label.add_theme_constant_override("outline_size", 3)
+	boss_health_label.add_theme_color_override("font_outline_color", Color(0.04, 0.02, 0.04))
+	boss_health_label.add_theme_color_override("font_color", Color(1.0, 0.65, 0.56))
+	boss_hud.add_child(boss_health_label)
+	boss_health_bar = ProgressBar.new()
+	boss_health_bar.show_percentage = false
+	boss_health_bar.custom_minimum_size = Vector2(500, 14)
+	var boss_fill = StyleBoxFlat.new()
+	boss_fill.bg_color = Color(0.95, 0.16, 0.28)
+	boss_health_bar.add_theme_stylebox_override("fill", boss_fill)
+	boss_hud.add_child(boss_health_bar)
+	boss_hud.hide()
 
 	hud_rank_button = Button.new()
 	hud_rank_button.text = "TOP 10"
@@ -448,7 +438,7 @@ func _build_ui() -> void:
 	title.add_theme_color_override("font_shadow_color", Color(0.89, 0.31, 0.87, 0.95))
 	menu_box.add_child(title)
 	var subtitle = Label.new()
-	subtitle.text = "30초 생존 × 100라운드"
+	subtitle.text = "100라운드 · 일반 30초 생존 / 보스 처치"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_box.add_child(subtitle)
 	var start_button = Button.new()
@@ -899,6 +889,9 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	xp_bar.visible = game_active
 	hud_top_left.scale = Vector2.ONE * top_scale
 	hud_top_left.position = Vector2(18, 16)
+	var boss_scale = 2.0 if mobile and portrait else 1.0
+	boss_hud.scale = Vector2.ONE * boss_scale
+	boss_hud.position = Vector2((view_size.x - 500 * boss_scale) * 0.5, 340.0 if mobile and portrait else 18.0)
 	var menu_button_scale = 1.7 if mobile and portrait else (1.15 if mobile else 1.0)
 	hud_rank_button.scale = Vector2.ONE * menu_button_scale
 	music_button.scale = Vector2.ONE * menu_button_scale
@@ -1075,6 +1068,7 @@ func start_new_game() -> void:
 
 func _start_round() -> void:
 	_clear_zombies_and_pickups()
+	boss_elapsed = 0.0
 	round_time_left = ROUND_DURATION
 	spawned_this_round = 0
 	spawn_target = get_round_spawn_target(round_number)
@@ -1082,7 +1076,7 @@ func _start_round() -> void:
 	spawn_accumulator = spawn_interval
 	boss_spawned = false
 	max_round_reached = max(max_round_reached, round_number)
-	if round_number % 10 == 0:
+	if is_boss_round():
 		_spawn_round_boss()
 	_update_hud()
 
@@ -1124,6 +1118,8 @@ func _save_checkpoint(next_round: int) -> void:
 		account_service.save_stash(cloud_stash)
 
 func _handle_spawning(delta: float) -> void:
+	if is_boss_round():
+		return
 	if spawned_this_round >= spawn_target:
 		return
 	var active = get_tree().get_nodes_in_group("zombie").size()
@@ -1140,10 +1136,8 @@ func _handle_spawning(delta: float) -> void:
 		guard += 1
 
 func get_round_spawn_target(r: int) -> int:
-	if r >= 100:
-		# Round 100 includes one separately spawned final boss. Keep total hostile
-		# spawns exactly 3x Round 99: regular spawns + final boss = R99 * 3.
-		return max(get_round_spawn_target(99) * 3 - 1, 1)
+	if r % 10 == 0:
+		return 0
 	var base = 15 + int(floor(float(r - 1) * 0.22))
 	var multiplier = 1.0
 	for threshold in SPECIAL_COUNT_BOOST_ROUNDS:
@@ -1165,10 +1159,12 @@ func get_zombie_speed_multiplier(r: int) -> float:
 	return min(1.0 + float(r - 1) * 0.002, 1.18)
 
 func _spawn_zombie(kind: String, near_position: Vector3 = Vector3.INF) -> void:
+	if is_boss_round() and kind not in ["boss", "final_boss"]:
+		return
 	var z = ZombieScript.new()
 	z.setup(self, kind, round_number)
 	if near_position != Vector3.INF:
-		var offset = Vector3(randf_range(-2.0, 2.0), 0, randf_range(-2.0, 2.0))
+		var offset = Vector3.ZERO if kind in ["boss", "final_boss"] else Vector3(randf_range(-2.0, 2.0), 0, randf_range(-2.0, 2.0))
 		z.position = Vector3(near_position.x + offset.x, 0.9, near_position.z + offset.z)
 	else:
 		z.position = _spawn_position_outside_view()
@@ -1216,10 +1212,21 @@ func _spawn_round_boss() -> void:
 	if boss_spawned:
 		return
 	boss_spawned = true
-	_spawn_zombie("final_boss" if round_number == 100 else "boss")
+	var spawn = player.global_position + Vector3(0, 0, -10)
+	spawn.x = clampf(spawn.x, -35, 35)
+	spawn.z = clampf(spawn.z, -35, 35)
+	for i in range(8):
+		var angle = -PI / 2 + TAU * i / 8
+		var candidate = player.global_position + Vector3(cos(angle), 0, sin(angle)) * 10
+		candidate.x = clampf(candidate.x, -35, 35)
+		candidate.z = clampf(candidate.z, -35, 35)
+		if candidate.distance_to(player.global_position) >= 7 and _line_of_sight(player.global_position + Vector3.UP * 0.65, candidate):
+			spawn = candidate
+			break
+	_spawn_zombie("final_boss" if round_number == 100 else "boss", spawn)
 
 func spawn_screamer_minions(pos: Vector3) -> void:
-	if not can_world_update():
+	if is_boss_round() or not can_world_update():
 		return
 	if get_tree().get_nodes_in_group("zombie").size() >= get_active_zombie_cap(round_number):
 		return
@@ -1340,7 +1347,8 @@ func _update_auto_attacks(delta: float) -> void:
 			continue
 		var damage = (9.0 + 6.0 * lv) * get_player_damage_multiplier()
 		var radius = 1.0 + lv * 0.25 if id == "auto_missile" else 0.0
-		_launch_ability_attack(id, origin + Vector3.UP * 0.9, target, damage, radius)
+		var launch_origin: Vector3 = ability_effects.companion_origin(id) if ability_effects != null else origin + Vector3.UP * 0.9
+		_launch_ability_attack(id, launch_origin, target, damage, radius)
 	for clone in clone_visuals:
 		if not is_instance_valid(clone):
 			continue
@@ -1564,6 +1572,33 @@ func on_zombie_killed(_zombie: Node, kind: String, pos: Vector3) -> void:
 		xp_gain = 100
 	_add_xp(xp_gain)
 	_try_spawn_drop(pos, kind)
+	if kind in ["boss", "final_boss"] and is_boss_round():
+		call_deferred("_complete_boss_round", round_number)
+
+func is_boss_round() -> bool:
+	return round_number > 0 and round_number % 10 == 0
+
+func active_boss() -> Node3D:
+	for enemy in get_tree().get_nodes_in_group("zombie"):
+		if is_instance_valid(enemy) and not enemy.is_queued_for_deletion() and not enemy.dead and enemy.kind in ["boss", "final_boss"]:
+			return enemy
+	return null
+
+func _complete_boss_round(expected_round: int) -> void:
+	if not game_active or round_number != expected_round or not is_boss_round() or active_boss() != null:
+		return
+	if round_number == MAX_ROUND:
+		pending_levelups = 0
+		upgrade_panel.hide()
+	_finish_round()
+
+func launch_boss_projectile(start: Vector3, direction: Vector3, speed: float, damage: float, style: int = 0, turn_rate: float = 0.0, acceleration: float = 0.0) -> Node3D:
+	if get_tree().get_nodes_in_group("boss_projectile").size() >= 192:
+		return null
+	var shot = BossProjectile.new()
+	add_child(shot)
+	shot.setup(self, start, direction, speed, damage, style, turn_rate, acceleration)
+	return shot
 
 func _add_xp(amount: int) -> void:
 	xp += int(round(float(amount) * get_xp_multiplier()))
@@ -1659,6 +1694,8 @@ func _apply_upgrade(id: String) -> void:
 	var max_level = 2 if id == "clone" else (5 if id.begins_with("auto_") else 4)
 	upgrades[id] = min(int(upgrades.get(id, 0)) + 1, max_level)
 	var lv = int(upgrades[id])
+	if id.begins_with("auto_") and ability_effects != null:
+		ability_effects.ensure_companion(id, lv)
 	if id == "vitality" and player != null:
 		if lv < 4:
 			player.max_hp += 15.0
@@ -1948,7 +1985,13 @@ func _update_camera() -> void:
 func _update_hud() -> void:
 	if round_label == null:
 		return
-	round_label.text = "%d / %d 라운드 · %d초" % [round_number, MAX_ROUND, int(ceil(max(round_time_left, 0.0)))]
+	round_label.text = "%d / %d · 보스 처치" % [round_number, MAX_ROUND] if is_boss_round() else "%d / %d 라운드 · %d초" % [round_number, MAX_ROUND, int(ceil(max(round_time_left, 0.0)))]
+	var boss = active_boss() if game_active and is_boss_round() else null
+	boss_hud.visible = boss != null
+	if boss != null:
+		boss_health_label.text = "%s · HP %d%% · 패턴 %d종" % ["최종 보스" if boss.kind == "final_boss" else "보스", int(ceil(boss.hp / boss.max_hp * 100)), boss.boss_attacks.unlocked_count()]
+		boss_health_bar.max_value = boss.max_hp
+		boss_health_bar.value = maxf(boss.hp, 0.0)
 	timer_label.text = "TIME %05.2f" % max(round_time_left, 0.0)
 	score_label.text = "점수 %d · 처치 %d" % [score, kills]
 	if player != null and is_instance_valid(player):
@@ -1995,6 +2038,9 @@ func _update_weapon_buttons() -> void:
 	touch_weapon_buttons[3].disabled = player.selected_slot != 0 or player.base_weapon_id != "pistol" or player.reloading or player.base_mag >= player.base_mag_max
 
 func _clear_zombies_and_pickups() -> void:
+	for group in ["boss_projectile", "ability_projectile"]:
+		for projectile in get_tree().get_nodes_in_group(group):
+			projectile.queue_free()
 	for z in get_tree().get_nodes_in_group("zombie"):
 		if is_instance_valid(z):
 			z.queue_free()

@@ -2,6 +2,7 @@ extends CharacterBody3D
 
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
+const BossAttacks = preload("res://scripts/boss_attacks.gd")
 
 var game: Node
 var kind = "walker"
@@ -21,6 +22,7 @@ var sprite_visual: Sprite3D
 var walk_phase = 0.0
 var attack_left = 0.0
 var hurt_left = 0.0
+var boss_attacks: Node3D
 
 func setup(p_game: Node, p_kind: String, p_round: int) -> void:
 	game = p_game
@@ -29,6 +31,10 @@ func setup(p_game: Node, p_kind: String, p_round: int) -> void:
 	_apply_stats()
 	_build_visual()
 	add_to_group("zombie")
+	if kind in ["boss", "final_boss"]:
+		boss_attacks = BossAttacks.new()
+		add_child(boss_attacks)
+		boss_attacks.setup(self)
 
 func _apply_stats() -> void:
 	var base_hp = 30.0
@@ -158,6 +164,16 @@ func _physics_process(delta: float) -> void:
 	var to_player: Vector3 = target.global_position - global_position
 	to_player.y = 0.0
 	var distance = to_player.length()
+	if kind in ["boss", "final_boss"]:
+		# Leave room to dodge radial missiles instead of pinning the player in melee.
+		velocity = to_player.normalized() * move_speed * 0.45 if distance > 8.0 else Vector3.ZERO
+		if velocity.length_squared() > 0.0:
+			move_and_slide()
+		elif distance <= attack_range and now >= next_attack_time:
+			next_attack_time = now + attack_cooldown
+			target.apply_damage(contact_damage)
+		_animate_visual(delta)
+		return
 
 	if kind == "spitter" and distance <= 9.0 and distance >= 3.0:
 		velocity = Vector3.ZERO

@@ -4,6 +4,7 @@ extends RefCounted
 const PLAYER = preload("res://assets/sprites/player_directional_v2.png")
 const PLAYER_WALK = preload("res://assets/sprites/player_walk_v3.png")
 const ATTACKS = preload("res://assets/sprites/ability_attacks_v2.png")
+const COMBAT = preload("res://assets/sprites/combat_v4.png")
 const ABILITIES = preload("res://assets/sprites/ability_illustrations.png")
 const ABILITY_IDS = ["damage", "fire_rate", "move_speed", "vitality", "pickup", "flame", "explosive", "energy", "auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile", "clone", "activation", "spark"]
 const ZOMBIES = preload("res://assets/sprites/zombie_groups.png")
@@ -283,6 +284,8 @@ static func _grid_region(source: Texture2D, index: int) -> Rect2:
 	return Rect2(start, finish - start)
 
 static func ability_icon(id: String) -> ImageTexture:
+	if id.begins_with("auto_"):
+		return companion_texture(id)
 	var index = ABILITY_IDS.find(id)
 	if index < 0: index = 15
 	return _frame(ABILITIES, _grid_region(ABILITIES, index))
@@ -294,6 +297,8 @@ static func make_ability_sprite(id: String, diameter: float = 1.4) -> Sprite3D:
 	return sprite
 
 static func attack_texture(id: String, impact: bool = false) -> ImageTexture:
+	if not impact and id != "clone":
+		return combat_texture({"auto_orbit":5, "auto_shock":6, "auto_flame":7, "auto_blade":8, "auto_missile":9}.get(id, 5))
 	var cells = {"auto_orbit": 7, "auto_shock": 6, "auto_flame": 5, "auto_blade": 8, "auto_missile": 9, "clone": 7} if impact else {"auto_orbit": 0, "auto_shock": 1, "auto_flame": 5, "auto_blade": 2, "auto_missile": 3, "clone": 10}
 	var index: int = cells.get(id, 0)
 	var key = "attack-v2:%d" % index
@@ -302,6 +307,24 @@ static func attack_texture(id: String, impact: bool = false) -> ImageTexture:
 		image = image.get_region(image.get_used_rect())
 		_atlas_cache[key] = ImageTexture.create_from_image(image)
 	return _atlas_cache[key]
+
+static func combat_texture(index: int) -> ImageTexture:
+	var key = "combat-v4:%d" % index
+	if not _atlas_cache.has(key):
+		var image = _frame(COMBAT, _grid_region(COMBAT, index)).get_image()
+		image = image.get_region(image.get_used_rect())
+		_atlas_cache[key] = ImageTexture.create_from_image(image)
+	return _atlas_cache[key]
+
+static func companion_texture(id: String) -> ImageTexture:
+	return combat_texture({"auto_orbit":0, "auto_shock":1, "auto_flame":2, "auto_blade":3, "auto_missile":4}.get(id, 0))
+
+static func make_combat_sprite(index: int, diameter: float) -> Sprite3D:
+	var texture = combat_texture(index)
+	var sprite = _sprite(diameter / maxf(texture.get_width(), texture.get_height()))
+	sprite.texture = texture
+	sprite.position = Vector3.ZERO
+	return sprite
 
 static func make_attack_sprite(id: String, impact: bool = false, diameter: float = 1.2) -> Sprite3D:
 	var texture = attack_texture(id, impact)

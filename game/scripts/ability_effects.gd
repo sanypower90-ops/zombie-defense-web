@@ -32,6 +32,9 @@ const COLORS := {
 }
 
 var active_auras: Dictionary = {}
+const AUTO_IDS := ["auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile"]
+var companions: Dictionary = {}
+var companion_phase := 0.0
 
 func show_pickup(kind: String, id: String, weapon_name: String = "") -> void:
 	var name = weapon_name if kind == "weapon" else str(ITEM_NAMES.get(id, id))
@@ -40,6 +43,28 @@ func show_pickup(kind: String, id: String, weapon_name: String = "") -> void:
 
 func show_upgrade(id: String, level: int) -> void:
 	_emit("%s Lv.%d" % [ABILITY_NAMES.get(id, id), level], COLORS.get(id, Color.WHITE), id, true)
+	if id in AUTO_IDS:
+		ensure_companion(id, level)
+
+func ensure_companion(id: String, level: int) -> void:
+	if companions.has(id) and is_instance_valid(companions[id]):
+		companions[id].set_meta("level", level)
+		return
+	var sprite = Visuals.make_combat_sprite(AUTO_IDS.find(id), 1.25)
+	sprite.name = "Companion_" + id
+	sprite.set_meta("level", level)
+	add_child(sprite)
+	companions[id] = sprite
+	_position_companions()
+
+func companion_origin(id: String) -> Vector3:
+	return companions[id].global_position if companions.has(id) and is_instance_valid(companions[id]) else global_position + Vector3.UP * 0.9
+
+func _position_companions() -> void:
+	for id in companions:
+		var index = AUTO_IDS.find(id)
+		var angle = TAU * index / 5.0 + companion_phase * 0.28
+		companions[id].position = Vector3(cos(angle) * 2.15, 0.95 + sin(companion_phase * 2.0 + index) * 0.13, sin(angle) * 2.15)
 
 func show_item_use(id: String, expires_at: float = 0.0) -> void:
 	_emit("%s 사용" % ITEM_NAMES.get(id, id), COLORS.get(id, Color.WHITE), id, false)
@@ -131,6 +156,11 @@ func _show_aura(id: String, expires_at: float) -> void:
 	active_auras[id] = aura
 
 func _process(delta: float) -> void:
+	var owner_player = get_parent()
+	if owner_player.get("game") != null and not owner_player.game.can_world_update():
+		return
+	companion_phase += delta
+	_position_companions()
 	for id in active_auras.keys():
 		var aura: Node3D = active_auras[id]
 		if not is_instance_valid(aura) or Time.get_ticks_msec() / 1000.0 >= float(aura.get_meta("expires_at", 0.0)):

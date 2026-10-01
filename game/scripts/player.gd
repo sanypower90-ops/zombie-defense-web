@@ -37,6 +37,7 @@ var damage_buff_until = 0.0
 var armor_buff_until = 0.0
 var invuln_until = 0.0
 var hurt_cooldown_until = 0.0
+var hurt_invulnerability_left := 0.0
 var weapon_mount: Node3D
 var visual_root: Node3D
 var sprite_visual: Sprite3D
@@ -82,6 +83,8 @@ func _build_visual() -> void:
 func _physics_process(delta: float) -> void:
 	if game == null:
 		return
+	if game.can_player_act():
+		advance_hit_feedback(delta)
 	if not game.can_player_act():
 		velocity = Vector3.ZERO
 		VisualFactory.animate_player(visual_root, walk_phase, 0.0, 0.0)
@@ -393,16 +396,25 @@ func cycle_weapon(direction: int) -> void:
 
 func apply_damage(amount: float) -> void:
 	var now = Time.get_ticks_msec() / 1000.0
-	if now < invuln_until or now < hurt_cooldown_until:
+	if hp <= 0.0 or amount <= 0.0 or hurt_invulnerability_left > 0.0 or now < invuln_until or now < hurt_cooldown_until:
 		return
 	var final_amount = amount
 	if now < armor_buff_until:
 		final_amount *= 0.5
-	# A crowd can touch the player at once; count at most one contact in this window.
-	hurt_cooldown_until = now + 1.5
+	# Two seconds of simulation time freeze with pause and block every damage source.
+	hurt_invulnerability_left = 2.0
+	hurt_cooldown_until = 0.0
 	hp = max(0.0, hp - final_amount)
+	advance_hit_feedback(0.0)
+	if game != null:
+		game.play_player_hurt_sfx()
 	if hp <= 0.0 and game != null:
 		game.on_player_dead()
+
+func advance_hit_feedback(delta: float) -> void:
+	hurt_invulnerability_left = maxf(0.0, hurt_invulnerability_left - delta)
+	if sprite_visual != null:
+		sprite_visual.modulate.a = 1.0 if hurt_invulnerability_left <= 0.0 else 0.25 + 0.45 * (0.5 + 0.5 * sin((2.0 - hurt_invulnerability_left) * TAU * 5.0))
 
 func heal(amount: float) -> void:
 	hp = min(max_hp, hp + amount)
