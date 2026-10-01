@@ -8,6 +8,9 @@ const PROPS_V5 = preload("res://assets/sprites/props_v5.png")
 const GRIPS_A = preload("res://assets/sprites/grips_a_v7.png")
 const GRIPS_B = preload("res://assets/sprites/grips_b_v7.png")
 const MELEE_FX = preload("res://assets/sprites/melee_fx_v7.png")
+const PLAYER_V8 = preload("res://assets/sprites/player_v8.png")
+const ATTACKS_V8 = preload("res://assets/sprites/attacks_v8.png")
+const STICK_V8 = preload("res://assets/sprites/stick_v8.png")
 const GUN_IDS = ["pistol","shotgun","smg","rifle","lmg","grenade","flamethrower","sniper","rocket","laser"]
 const MELEE = preload("res://assets/sprites/player_melee_v6.png")
 const MELEE_BACK = preload("res://assets/sprites/player_melee_back_v6.png")
@@ -29,13 +32,15 @@ static var _source_images: Dictionary = {}
 static var _regions: Dictionary = {}
 static var _walk_regions: Array = []
 static var _grip_regions: Dictionary = {}
+static var _player_regions_v8: Dictionary = {}
+static var _torso_cache: Dictionary = {}
 
 static func _frame(source: Texture2D, rect: Rect2, character: bool = false) -> ImageTexture:
 	var key = "%s:%s:%s" % [source.resource_path, str(rect), str(character)]
 	if not _atlas_cache.has(key):
 		if not _source_images.has(source.resource_path):
 			var original = source.get_image()
-			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5, MELEE, MELEE_BACK, GRIPS_A, GRIPS_B, MELEE_FX]:
+			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5, MELEE, MELEE_BACK, GRIPS_A, GRIPS_B, MELEE_FX, PLAYER_V8, ATTACKS_V8, STICK_V8]:
 				original.convert(Image.FORMAT_RGBA8)
 				var pixels = original.get_data()
 				# Barely visible alpha noise must not expand a frame's bounds.
@@ -170,17 +175,10 @@ static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: fl
 		return
 	var direction = player_direction(yaw)
 	if weapon_id in ["sword", "fist"]:
-		sprite.flip_h = direction in [5, 6, 7]
-		var back = direction in [3, 4, 5]
-		sprite.flip_h = direction == 3 if back else direction in [5,6,7]
-		var side = direction != (4 if back else 0)
-		var row = (0 if weapon_id == "sword" else 2) + (1 if side else 0)
-		var frame = clampi(int((1.0-recoil) * 4.0),1,3) if recoil > .05 else 0
-		if weapon_id == "fist" and recoil > .05: frame = 1 if strike % 2 == 0 else 3
-		if motion > .05 and recoil <= .05 and weapon_id == "sword": frame = 3
-		var body = melee_frame(back,row,frame)
-		sprite.texture = walking_melee(body,direction,phase) if motion > .05 else body
-		sprite.position.y = .67 + sin(phase * 2) * .035 * motion
+		sprite.flip_h = false
+		var frame = int(floor(phase / TAU * 4.0))
+		sprite.texture = melee_player_v8(weapon_id,direction,recoil > .55,frame,motion > .05)
+		sprite.position.y = .67 + sin(phase*2)*.025*motion
 		return
 	sprite.flip_h = false
 	sprite.position.y = .67
@@ -213,28 +211,63 @@ static func armed_frame(direction: int, action: String, frame: int, weapon_id: S
 	var view = 2 if direction in [3,4,5] else (0 if direction in [0,7] else 1)
 	var key = "armed-v7:%d:%d:%s:%d" % [weapon,direction,action,posmod(frame,4)]
 	if not _atlas_cache.has(key):
-		var image = _player_frame(direction,action,frame).get_image()
-		image.fill_rect(Rect2i(0,0,160,94),Color.TRANSPARENT)
-		var source = GRIPS_A if weapon < 5 else GRIPS_B
-		var torso = _frame(source,grip_region(source,weapon%5,view)).get_image()
-		torso = _isolate_character(torso)
-		torso = torso.get_region(torso.get_used_rect())
-		if direction in [5,6,7]: torso.flip_x()
-		# Anchor the jacket hem to the walking hips, rather than centering a long barrel.
-		var hip_sum = 0.0
-		var hip_count = 0
-		for y in range(maxi(0,torso.get_height()-18),torso.get_height()):
-			for x in range(torso.get_width()):
-				if torso.get_pixel(x,y).a > .2:
-					hip_sum += x
-					hip_count += 1
-		var hip = hip_sum / maxf(1,hip_count)
-		var span = maxf(hip,torso.get_width()-hip)
-		var factor = minf(76.0/torso.get_height(),76.0/maxf(1,span))
-		torso.resize(maxi(1,int(torso.get_width()*factor)),maxi(1,int(torso.get_height()*factor)),Image.INTERPOLATE_LANCZOS)
-		image.blend_rect(torso,Rect2i(Vector2i.ZERO,torso.get_size()),Vector2i(int(80-hip*factor),98-torso.get_height()))
+		var torso = gun_torso_v8(weapon,view,direction in [5,6,7])
+		var image = compose_player_v8(torso,_player_frame(direction,action,frame).get_image())
 		_atlas_cache[key] = ImageTexture.create_from_image(image)
 	return _atlas_cache[key]
+
+static func gun_torso_v8(weapon: int, view: int, flipped: bool) -> Dictionary:
+	var key = "gun:%d:%d:%s" % [weapon,view,flipped]
+	if not _torso_cache.has(key):
+		var source = GRIPS_A if weapon < 5 else GRIPS_B
+		var image = _isolate_character(_frame(source,grip_region(source,weapon%5,view)).get_image())
+		_torso_cache[key] = normalize_torso_v8(image,flipped)
+	return _torso_cache[key]
+
+static func normalize_torso_v8(image: Image, flipped: bool) -> Dictionary:
+	image = image.get_region(image.get_used_rect())
+	if flipped: image.flip_x()
+	var sum_x = 0.0
+	var count = 0
+	for y in range(maxi(0,image.get_height()-18),image.get_height()):
+		for x in range(image.get_width()):
+			if image.get_pixel(x,y).a > .2:
+				sum_x += x
+				count += 1
+	var hip = sum_x / maxf(1,count)
+	var factor = minf(76.0/image.get_height(),116.0/maxf(hip,image.get_width()-hip))
+	image.resize(maxi(1,int(image.get_width()*factor)),maxi(1,int(image.get_height()*factor)),Image.INTERPOLATE_LANCZOS)
+	return {"image":image,"hip":hip*factor}
+
+static func compose_player_v8(torso: Dictionary, legs: Image) -> Image:
+	var image = Image.create(240,144,false,Image.FORMAT_RGBA8)
+	image.fill(Color.TRANSPARENT)
+	# Only legs are copied; no fragments of the old pistol torso survive.
+	image.blit_rect(legs,Rect2i(0,98,160,46),Vector2i(40,98))
+	var body: Image = torso["image"]
+	image.blend_rect(body,Rect2i(Vector2i.ZERO,body.get_size()),Vector2i(int(120-torso["hip"]),98-body.get_height()))
+	return image
+
+static func melee_player_v8(id: String, direction: int, attack: bool, frame: int, moving: bool) -> ImageTexture:
+	var view = 2 if direction in [3,4,5] else (0 if direction == 0 else 1)
+	var row = (0 if id == "sword" else 2) + (1 if attack else 0)
+	var flipped = view == 1 and direction in [1,2]
+	var key = "melee-v8:%s:%d:%s:%d" % [id,direction,attack,posmod(frame,4) if moving else -1]
+	if not _atlas_cache.has(key):
+		var torso_key = "melee:%d:%d:%s" % [row,view,flipped]
+		if not _torso_cache.has(torso_key):
+			if _player_regions_v8.is_empty(): _player_regions_v8 = JSON.parse_string(FileAccess.get_file_as_string("res://assets/sprites/player_regions_v8.json"))
+			var bounds: Array = _player_regions_v8["player_v8"][row][view]
+			var crop = _frame(PLAYER_V8,Rect2(bounds[0],bounds[1],bounds[2],bounds[3])).get_image()
+			_torso_cache[torso_key] = normalize_torso_v8(_isolate_character(crop),flipped)
+		var image = compose_player_v8(_torso_cache[torso_key],_player_frame(direction,"walk" if moving else "idle",frame).get_image())
+		_atlas_cache[key] = ImageTexture.create_from_image(image)
+	return _atlas_cache[key]
+
+static func joystick_texture(knob: bool) -> ImageTexture:
+	var cell_width = STICK_V8.get_width()/2
+	var image = _frame(STICK_V8,Rect2(cell_width if knob else 0,0,cell_width,STICK_V8.get_height())).get_image()
+	return ImageTexture.create_from_image(image.get_region(image.get_used_rect()))
 
 static func melee_frame(back: bool, row: int, frame: int) -> ImageTexture:
 	var source = MELEE_BACK if back else MELEE
@@ -409,8 +442,8 @@ static func make_ability_sprite(id: String, diameter: float = 1.4) -> Sprite3D:
 
 static func attack_texture(id: String, impact: bool = false) -> ImageTexture:
 	if id != "clone":
-		var cells = {"auto_orbit":9, "auto_shock":6, "auto_flame":7, "auto_blade":8, "auto_missile":9} if impact else {"auto_orbit":4, "auto_shock":1, "auto_flame":2, "auto_blade":3, "auto_missile":4}
-		return isolated_grid_texture(FLIGHT, cells.get(id, 0))
+		var cells = {"auto_orbit":5,"auto_shock":6,"auto_flame":7,"auto_blade":8,"auto_missile":9} if impact else {"auto_orbit":0,"auto_shock":1,"auto_flame":2,"auto_blade":3,"auto_missile":4}
+		return isolated_grid_texture(ATTACKS_V8,cells.get(id,0))
 	var cells = {"auto_orbit": 7, "auto_shock": 6, "auto_flame": 5, "auto_blade": 8, "auto_missile": 9, "clone": 7} if impact else {"auto_orbit": 0, "auto_shock": 1, "auto_flame": 5, "auto_blade": 2, "auto_missile": 3, "clone": 10}
 	var index: int = cells.get(id, 0)
 	var key = "attack-v2:%d" % index

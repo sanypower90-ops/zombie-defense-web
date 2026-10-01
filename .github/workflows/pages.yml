@@ -48,6 +48,8 @@ jobs:
         run: godot --headless --path game --script res://tests/ability_roles_test.gd
       - name: Check melee effects, held weapons and textured ground
         run: godot --headless --path game --script res://tests/melee_ground_test.gd
+      - name: Check centered camera, inventory and revised boss mechanics
+        run: godot --headless --path game --script res://tests/v8_update_test.gd
       - name: Export Web game
         run: |
           mkdir -p build/web

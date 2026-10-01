@@ -35,6 +35,8 @@ var aim_direction = Vector3.FORWARD
 var speed_buff_until = 0.0
 var damage_buff_until = 0.0
 var armor_buff_until = 0.0
+var energy_guard := 0.0
+var energy_guard_max := 60.0
 var invuln_until = 0.0
 var hurt_cooldown_until = 0.0
 var hurt_invulnerability_left := 0.0
@@ -100,13 +102,14 @@ func _physics_process(delta: float) -> void:
 		VisualFactory.set_player_weapon(weapon_mount, weapon_id)
 		SpriteVisuals.set_weapon_icon(weapon_icon, weapon_id)
 	_move_player(delta)
+	game._update_camera()
 	_aim_at_pointer()
 	_handle_fire()
 	var motion = clamp(velocity.length() / max(base_move_speed, 0.01), 0.0, 1.0)
 	if motion > 0.05:
 		walk_phase += velocity.length() * delta * TAU / 4.4
 	recoil_left = max(recoil_left - delta * (4.5 if weapon_id == "sword" else 6.0), 0.0)
-	VisualFactory.animate_player(visual_root, walk_phase, motion, recoil_left)
+	# Hidden fallback meshes do not need per-frame bone updates.
 	SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, motion, recoil_left, false, weapon_id, melee_strike)
 
 func _input(event: InputEvent) -> void:
@@ -148,7 +151,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _begin_touch(index: int, position: Vector2) -> void:
 	if game.touch_hit_zone == null or not game.touch_hit_zone.visible or not game.touch_hit_zone.get_global_rect().has_point(position):
 		return
-	for button in game.touch_weapon_buttons:
+	for button in game.touch_weapon_buttons + game.item_buttons.values():
 		if button.visible and button.get_global_rect().has_point(position):
 			return
 	if move_touch_id < 0:
@@ -405,6 +408,9 @@ func apply_damage(amount: float) -> void:
 		final_amount *= 0.75
 	if now < armor_buff_until:
 		final_amount *= 0.5
+	var absorbed = minf(energy_guard,final_amount)
+	energy_guard -= absorbed
+	final_amount -= absorbed
 	# Two seconds of simulation time freeze with pause and block every damage source.
 	hurt_invulnerability_left = 2.0
 	hurt_cooldown_until = 0.0
@@ -433,9 +439,14 @@ func apply_item(item_id: String) -> void:
 		"damage":
 			damage_buff_until = max(damage_buff_until, now + 10.0)
 		"armor":
+			add_energy_guard()
 			armor_buff_until = max(armor_buff_until, now + 10.0)
 		"invuln":
 			invuln_until = max(invuln_until, now + 5.0)
+
+func add_energy_guard() -> void:
+	energy_guard_max = maxf(60.0,max_hp*.6)
+	energy_guard = minf(energy_guard_max,energy_guard + 60.0)
 
 func temporary_damage_multiplier() -> float:
 	return 1.35 if Time.get_ticks_msec() / 1000.0 < damage_buff_until else 1.0

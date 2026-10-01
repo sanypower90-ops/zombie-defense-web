@@ -23,7 +23,7 @@ func setup(p_game: Node3D, id: String, start: Vector3, enemy: Node3D, power: flo
 	hit_radius = radius
 	global_position = start
 	destination = enemy.global_position + Vector3.UP * 0.65
-	speed = {"auto_orbit": 30.0, "auto_shock": 34.0, "auto_flame": 22.0, "auto_blade": 24.0, "auto_missile": 20.0, "clone": 30.0}.get(id, 24.0)
+	speed = {"auto_orbit": 30.0, "auto_shock": 34.0, "auto_flame": 22.0, "auto_blade": 24.0, "auto_missile": 20.0, "clone": 30.0}.get(id, 24.0) * .7
 	illustration = Visuals.make_attack_sprite(id, false, 2.0 if id != "auto_missile" else 2.4)
 	add_child(illustration)
 	Visuals.align_fx(illustration, game.camera, destination - start)
@@ -42,7 +42,7 @@ func advance(delta: float) -> void:
 	if spent: return
 	elapsed += delta
 	_update_trails(delta)
-	if elapsed > 4.0:
+	if elapsed > 8.0:
 		queue_free()
 		return
 	if is_instance_valid(target) and not target.dead:

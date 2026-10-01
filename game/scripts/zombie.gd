@@ -24,6 +24,16 @@ var walk_phase = 0.0
 var attack_left = 0.0
 var hurt_left = 0.0
 var boss_attacks: Node3D
+var boss_motion_time := 0.0
+var dash_direction := Vector3.ZERO
+var dash_locked := false
+var reward_thresholds := 0
+
+func _enter_tree() -> void:
+	if game != null: game._enemy_frame = -1
+
+func _exit_tree() -> void:
+	if is_instance_valid(game): game._enemy_frame = -1
 
 func setup(p_game: Node, p_kind: String, p_round: int) -> void:
 	game = p_game
@@ -105,7 +115,7 @@ func _apply_stats() -> void:
 	var hp_mult = game.get_zombie_hp_multiplier(round_number)
 	var damage_mult = game.get_zombie_damage_multiplier(round_number)
 	var speed_mult = game.get_zombie_speed_multiplier(round_number)
-	max_hp = base_hp * hp_mult
+	max_hp = base_hp * hp_mult * (1.3 if kind in ["boss","final_boss"] else 1.0)
 	hp = max_hp
 	contact_damage = base_damage * damage_mult
 	move_speed = base_speed * speed_mult
@@ -173,11 +183,10 @@ func _physics_process(delta: float) -> void:
 	to_player.y = 0.0
 	var distance = to_player.length()
 	if kind in ["boss", "final_boss"]:
-		# Leave room to dodge radial missiles instead of pinning the player in melee.
-		velocity = to_player.normalized() * move_speed * 0.45 if distance > 8.0 else Vector3.ZERO
-		if velocity.length_squared() > 0.0:
+		advance_boss_motion(delta,to_player,distance)
+		if velocity.length_squared() > 0:
 			move_and_slide()
-		elif distance <= attack_range and now >= next_attack_time:
+		if distance <= attack_range and now >= next_attack_time:
 			next_attack_time = now + attack_cooldown
 			target.apply_damage(contact_damage)
 		_animate_visual(delta)
@@ -212,12 +221,43 @@ func _physics_process(delta: float) -> void:
 			target.apply_damage(contact_damage)
 	_animate_visual(delta)
 
+func advance_boss_motion(delta: float, toward: Vector3, distance: float) -> void:
+	boss_motion_time += delta
+	var cycle = fmod(boss_motion_time,6.0)
+	var warning = cycle >= 4.7 and cycle < 5.15
+	if cycle < 4.7: dash_locked = false
+	if cycle >= 4.7 and not dash_locked:
+		dash_direction = toward.normalized()
+		dash_locked = true
+	set_meta("dash_warning",warning)
+	if warning:
+		velocity = Vector3.ZERO
+	elif cycle >= 5.15 and cycle < 5.7:
+		velocity = dash_direction * 12.0
+	else:
+		velocity = toward.normalized() * move_speed * .45 if distance > 8 else Vector3.ZERO
+
+func _drop_boss_rewards() -> void:
+	if kind not in ["boss","final_boss"]: return
+	var crossed = clampi(int(floor((1.0-maxf(hp,0.0)/max_hp+.000001)*10)),0,10)
+	while reward_thresholds < crossed:
+		reward_thresholds += 1
+		var choices = ["heal","speed","damage","armor","invuln","bomb","xp_burst"]
+		choices.shuffle()
+		var count = randi_range(1,5)
+		for i in range(count):
+			var angle = randf()*TAU
+			var point = global_position + Vector3(cos(angle),0,sin(angle))*randf_range(2,4)
+			game._spawn_pickup(point,"item",choices[i])
+		set_meta("last_reward_count",count)
+
 func _animate_visual(delta: float) -> void:
 	var motion = clamp(velocity.length() / max(move_speed, 0.01), 0.0, 1.0)
 	walk_phase += delta * (10.0 if motion > 0.05 else 2.0)
 	attack_left = max(attack_left - delta * 3.8, 0.0)
 	hurt_left = max(hurt_left - delta * 5.0, 0.0)
-	VisualFactory.animate_zombie(visual_root, walk_phase, motion, attack_left, hurt_left)
+	# Physics remains active offscreen; skip only invisible sprite animation.
+	if game.player.global_position.distance_squared_to(global_position) > 2500.0: return
 	var facing := velocity
 	if game != null and game.player != null:
 		facing = game.player.global_position - global_position
@@ -228,6 +268,7 @@ func take_damage(amount: float) -> void:
 		return
 	hurt_left = 1.0
 	hp -= max(amount, 0.0)
+	_drop_boss_rewards()
 	if hp <= 0.0:
 		die()
 

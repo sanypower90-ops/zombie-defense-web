@@ -16,7 +16,7 @@ const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
 const OrbitGuard = preload("res://scripts/orbit_guard.gd")
 const BossProjectile = preload("res://scripts/boss_projectile.gd")
 
-const ROUND_DURATION := 30.0
+const ROUND_DURATION := 20.0
 const MAX_ROUND := 100
 const SPECIAL_COUNT_BOOST_ROUNDS := [11, 21, 31, 51, 61, 71, 81, 91]
 const MAP_HALF_SIZE := 38.0
@@ -28,6 +28,16 @@ var base_weapon_panel: PanelContainer
 var camera: Camera3D
 var menu_music: AudioStreamPlayer
 var gameplay_music: AudioStreamPlayer
+var boss_music: AudioStreamPlayer
+var home_background: TextureRect
+var flash_overlay: ColorRect
+var guard_label: Label
+var item_toolbar: HBoxContainer
+var item_buttons: Dictionary = {}
+var joystick_knob: TextureRect
+var hud_elapsed := 0.0
+var _enemy_frame := -1
+var _enemy_cache: Array = []
 var music_button: Button
 var game_menu_button: Button
 var game_menu_panel: PanelContainer
@@ -88,7 +98,7 @@ var upgrades = {
 var weapon_data = {
 	"pistol": {"name":"기본 권총", "damage":20.0, "fire_rate":3.0, "range":24.0, "ammo_max":-1},
 	"sword": {"name":"장검", "damage":18.0, "fire_rate":2.0, "range":7.15, "ammo_max":-1},
-	"fist": {"name":"짧은 주먹", "damage":22.0, "fire_rate":7.0, "range":2.34, "ammo_max":-1},
+	"fist": {"name":"짧은 주먹", "damage":22.0, "fire_rate":7.0, "range":3.51, "ammo_max":-1},
 	"shotgun": {"name":"샷건", "damage":30.0, "fire_rate":1.15, "range":11.0, "ammo_max":30},
 	"smg": {"name":"기관단총", "damage":16.0, "fire_rate":10.0, "range":20.0, "ammo_max":180},
 	"rifle": {"name":"돌격소총", "damage":30.0, "fire_rate":6.0, "range":26.0, "ammo_max":120},
@@ -149,6 +159,7 @@ var _leaderboard_resume_after_close = false
 
 func _ready() -> void:
 	randomize()
+	Engine.max_fps = 60
 	_build_music()
 	_build_sfx()
 	save_manager = SaveManagerScript.new()
@@ -182,15 +193,20 @@ func _build_music() -> void:
 	gameplay_music.stream = game_track
 	gameplay_music.volume_db = -14.0
 	add_child(gameplay_music)
+	boss_music = AudioStreamPlayer.new()
+	var boss_track = load("res://assets/audio/boss.mp3") as AudioStreamMP3
+	boss_track.loop = true
+	boss_music.stream = boss_track
+	boss_music.volume_db = -14.0
+	add_child(boss_music)
 
 func _switch_music(playing_game: bool) -> void:
 	if menu_music == null or gameplay_music == null:
 		return
-	var chosen = gameplay_music if playing_game else menu_music
-	var other = menu_music if playing_game else gameplay_music
-	other.stop()
-	if music_enabled and not chosen.playing:
-		chosen.play()
+	var chosen = (boss_music if is_boss_round() else gameplay_music) if playing_game else menu_music
+	for track in [menu_music,gameplay_music,boss_music]:
+		if track != chosen: track.stop()
+	if music_enabled and not chosen.playing: chosen.play()
 
 func _toggle_music() -> void:
 	music_enabled = not music_enabled
@@ -200,9 +216,10 @@ func _toggle_music() -> void:
 	else:
 		menu_music.stop()
 		gameplay_music.stop()
+		boss_music.stop()
 
 func _build_sfx() -> void:
-	for sound_id in ["pistol", "sword", "fist", "shotgun", "smg", "rifle", "lmg", "grenade", "flamethrower", "sniper", "rocket", "laser", "zombie", "player_hurt", "boss_warning", "boss_launch"]:
+	for sound_id in ["pistol", "sword", "fist", "shotgun", "smg", "rifle", "lmg", "grenade", "flamethrower", "sniper", "rocket", "laser", "zombie", "player_hurt", "boss_warning", "boss_launch", "round_change", "electric_trap", "explosion"]:
 		sfx_streams[sound_id] = load("res://assets/audio/sfx/%s.wav" % sound_id)
 	for i in range(24):
 		var voice = AudioStreamPlayer.new()
@@ -285,12 +302,26 @@ func _physics_process(delta: float) -> void:
 	_handle_spawning(delta)
 	_update_auto_attacks(delta)
 	_update_clones()
-	_update_hud()
 	if not is_boss_round() and round_time_left <= 0.0:
 		_finish_round()
 
-func _process(_delta: float) -> void:
-	_update_hud()
+func _process(delta: float) -> void:
+	# Follow after physics movement, without a dead zone or rotating the view.
+	if game_active: _update_camera()
+	if joystick_knob != null and player != null:
+		joystick_knob.position = Vector2(91,91) + player.touch_move_vector * 65.0
+	hud_elapsed += delta
+	if hud_elapsed >= .1:
+		hud_elapsed = 0.0
+		_update_hud()
+
+func get_enemies() -> Array:
+	var frame = Engine.get_physics_frames()
+	if _enemy_frame != frame:
+		_enemy_frame = frame
+		_enemy_cache = get_tree().get_nodes_in_group("zombie")
+	return _enemy_cache
+
 
 func can_world_update() -> bool:
 	return game_active and not gameplay_paused and player != null
@@ -383,6 +414,18 @@ func _build_ui() -> void:
 	var hud = Control.new()
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	canvas.add_child(hud)
+	home_background = TextureRect.new()
+	home_background.set_anchors_preset(Control.PRESET_FULL_RECT)
+	home_background.texture = preload("res://assets/sprites/home_v8.png")
+	home_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	home_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	home_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(home_background)
+	flash_overlay = ColorRect.new()
+	flash_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash_overlay.color = Color(1,1,1,0)
+	flash_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(flash_overlay)
 
 	hud_top_left = VBoxContainer.new()
 	hud_top_left.position = Vector2(18, 16)
@@ -408,6 +451,11 @@ func _build_ui() -> void:
 		label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
 		label.add_theme_constant_override("shadow_offset_x", 1)
 		label.add_theme_constant_override("shadow_offset_y", 1)
+	guard_label = Label.new()
+	guard_label.add_theme_font_size_override("font_size",16)
+	guard_label.add_theme_color_override("font_color",Color(.4,.9,1))
+	hud_top_left.add_child(guard_label)
+	hud_top_left.move_child(guard_label,hp_label.get_index()+1)
 	timer_label.hide()
 	xp_label.hide()
 	xp_bar = ProgressBar.new()
@@ -463,18 +511,19 @@ func _build_ui() -> void:
 	_build_touch_controls(hud)
 
 	menu_panel = _make_center_panel(hud, Vector2(500, 490))
+	menu_panel.add_theme_font_override("font",preload("res://assets/fonts/ChosunCentennial.otf"))
 	var menu_box = VBoxContainer.new()
 	menu_box.add_theme_constant_override("separation", 12)
 	menu_panel.add_child(menu_box)
 	var title = Label.new()
-	title.text = "ZOMBIE DEFENSE 100"
+	title.text = "좀비 디펜스 100"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color(1.0, 0.65, 0.95))
 	title.add_theme_color_override("font_shadow_color", Color(0.89, 0.31, 0.87, 0.95))
 	menu_box.add_child(title)
 	var subtitle = Label.new()
-	subtitle.text = "100라운드 · 일반 30초 생존 / 보스 처치"
+	subtitle.text = "100라운드 · 일반 20초 생존 / 보스 처치"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_box.add_child(subtitle)
 	var start_button = Button.new()
@@ -778,7 +827,7 @@ func _on_cloud_stash_loaded(ok: bool, stash: Dictionary, message: String) -> voi
 		return
 	var guest_player: Dictionary = {}
 	if account_service.just_registered and stash.is_empty():
-		guest_player = save_manager.load_checkpoint().get("player", {})
+		guest_player = player.get_save_data() if game_active and player != null else {}
 	save_manager.set_active_account(account_service.user_id())
 	cloud_stash = stash.duplicate(true)
 	var local_copy: Dictionary = save_manager.load_checkpoint()
@@ -824,7 +873,7 @@ func _logout_account() -> void:
 	cloud_stash.clear()
 	cloud_ready = false
 	account_password.clear()
-	account_status.text = "로그아웃했습니다. 이 기기의 게스트 보관 정보는 그대로 유지됩니다."
+	account_status.text = "로그아웃했습니다. 비로그인 아이템은 현재 게임 동안만 유지됩니다."
 	_refresh_character_panel()
 
 func _close_character_panel() -> void:
@@ -835,9 +884,9 @@ func _close_character_panel() -> void:
 func _refresh_character_panel() -> void:
 	for child in character_box.get_children():
 		child.queue_free()
-	var saved: Dictionary = save_manager.load_checkpoint() if player == null else {}
-	var saved_player: Dictionary = cloud_stash if player == null and account_service.logged_in() else saved.get("player", {})
-	var inventory: Dictionary = player.item_inventory if player != null else saved_player.get("item_inventory", {})
+	var saved: Dictionary = save_manager.load_checkpoint() if player == null and account_service.logged_in() else {}
+	var saved_player: Dictionary = cloud_stash if account_service.logged_in() else {}
+	var inventory: Dictionary = player.item_inventory if player != null and game_active else saved_player.get("item_inventory", {})
 	var title = Label.new()
 	title.text = "내 캐릭터 · LV %d" % level
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -885,6 +934,16 @@ func _use_character_item(id: String) -> void:
 			ability_effects.show_item_use(id, expires_at)
 		_save_checkpoint(round_number)
 		_close_character_panel()
+		_update_hud()
+
+func _use_quick_item(id: String) -> void:
+	if not can_player_act(): return
+	_use_character_item(id)
+
+func _flash_bomb() -> void:
+	flash_overlay.color.a = .65
+	var tween = create_tween()
+	tween.tween_property(flash_overlay,"color:a",0.0,.07)
 
 func _build_touch_controls(hud: Control) -> void:
 	touch_controls = Control.new()
@@ -897,15 +956,31 @@ func _build_touch_controls(hud: Control) -> void:
 	touch_controls.add_child(touch_hit_zone)
 	touch_left_zone = _make_touch_zone("", Vector2.ZERO, Vector2(280, 280))
 	touch_hit_zone.add_child(touch_left_zone)
-	var stick_dot = PanelContainer.new()
-	stick_dot.size = Vector2(70, 70)
-	stick_dot.position = Vector2(105, 105)
-	stick_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var dot_style = StyleBoxFlat.new()
-	dot_style.bg_color = Color(0.45, 0.90, 1.0, 0.38)
-	dot_style.set_corner_radius_all(35)
-	stick_dot.add_theme_stylebox_override("panel", dot_style)
-	touch_left_zone.add_child(stick_dot)
+	var transparent = StyleBoxFlat.new()
+	transparent.bg_color = Color.TRANSPARENT
+	touch_left_zone.add_theme_stylebox_override("panel",transparent)
+	var base = TextureRect.new()
+	base.texture = SpriteVisuals.joystick_texture(false)
+	base.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	base.size = Vector2(280,280)
+	base.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	touch_left_zone.add_child(base)
+	joystick_knob = TextureRect.new()
+	joystick_knob.texture = SpriteVisuals.joystick_texture(true)
+	joystick_knob.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	joystick_knob.size = Vector2(98,98)
+	joystick_knob.position = Vector2(91,91)
+	joystick_knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	base.add_child(joystick_knob)
+	item_toolbar = HBoxContainer.new()
+	item_toolbar.add_theme_constant_override("separation",8)
+	hud.add_child(item_toolbar)
+	for id in ["heal","speed","damage","armor","invuln"]:
+		var item_button = Button.new()
+		item_button.custom_minimum_size = Vector2(110,52)
+		item_button.pressed.connect(_use_quick_item.bind(id))
+		item_toolbar.add_child(item_button)
+		item_buttons[id] = item_button
 
 	weapon_slot_normal = StyleBoxFlat.new()
 	weapon_slot_normal.bg_color = Color(0.035, 0.05, 0.09, 0.82)
@@ -1004,6 +1079,11 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 		button.add_theme_font_size_override("font_size", 24)
 		button.scale = Vector2.ONE * weapon_scale
 		button.position = Vector2((view_size.x - row_width) * 0.5 + i * 168.0 * weapon_scale, row_y)
+	var item_scale = minf(weapon_scale,(view_size.x-36.0)/582.0)
+	item_toolbar.scale = Vector2.ONE * item_scale
+	item_toolbar.position = Vector2((view_size.x-582.0*item_scale)*.5,row_y-62.0*item_scale-8.0)
+	for button in item_buttons.values(): button.add_theme_font_size_override("font_size",19)
+
 
 func _make_touch_zone(text: String, position: Vector2, size: Vector2) -> PanelContainer:
 	var panel = PanelContainer.new()
@@ -1073,8 +1153,11 @@ func _show_main_menu() -> void:
 	gameplay_paused = false
 	if touch_controls != null:
 		touch_controls.hide()
+	if item_toolbar != null: item_toolbar.hide()
 	_clear_dynamic_entities()
 	menu_panel.show()
+	home_background.show()
+	if player != null and not account_service.logged_in(): player.item_inventory.clear()
 	result_panel.hide()
 	nickname_panel.hide()
 	upgrade_panel.hide()
@@ -1091,6 +1174,8 @@ func start_new_game() -> void:
 	_pending_rank_check = false
 	_clear_dynamic_entities()
 	menu_panel.hide()
+	home_background.hide()
+	item_toolbar.show()
 	result_panel.hide()
 	nickname_panel.hide()
 	leaderboard_panel.hide()
@@ -1135,7 +1220,7 @@ func start_new_game() -> void:
 
 	round_number = 1
 	var stored: Dictionary = save_manager.load_checkpoint()
-	var stored_player: Dictionary = cloud_stash if account_service.logged_in() else stored.get("player", {})
+	var stored_player: Dictionary = cloud_stash if account_service.logged_in() else {}
 	if not stored_player.is_empty():
 		player.item_inventory = stored_player.get("item_inventory", {}).duplicate(true)
 		player.special_slots = stored_player.get("special_slots", []).duplicate(true)
@@ -1146,6 +1231,7 @@ func start_new_game() -> void:
 	_rebuild_clones()
 	max_round_reached = round_number
 	_start_round()
+	_update_camera()
 
 func _start_round() -> void:
 	_clear_zombies_and_pickups()
@@ -1159,6 +1245,8 @@ func _start_round() -> void:
 	max_round_reached = max(max_round_reached, round_number)
 	if is_boss_round():
 		_spawn_round_boss()
+	_switch_music(true)
+	if round_number > 1: _play_sfx("round_change")
 	_update_hud()
 
 func _finish_round() -> void:
@@ -1173,6 +1261,7 @@ func _finish_round() -> void:
 	_start_round()
 
 func _save_checkpoint(next_round: int) -> void:
+	if not account_service.logged_in(): return
 	var saved_at = Time.get_unix_time_from_system()
 	var data = {
 		"next_round": next_round,
@@ -1203,7 +1292,7 @@ func _handle_spawning(delta: float) -> void:
 		return
 	if spawned_this_round >= spawn_target:
 		return
-	var active = get_tree().get_nodes_in_group("zombie").size()
+	var active = get_enemies().size()
 	var cap = get_active_zombie_cap(round_number)
 	if active >= cap:
 		return
@@ -1240,6 +1329,7 @@ func get_zombie_speed_multiplier(r: int) -> float:
 	return min(1.0 + float(r - 1) * 0.002, 1.18)
 
 func _spawn_zombie(kind: String, near_position: Vector3 = Vector3.INF) -> void:
+	_enemy_frame = -1
 	if is_boss_round() and kind not in ["boss", "final_boss"]:
 		return
 	var z = ZombieScript.new()
@@ -1309,7 +1399,7 @@ func _spawn_round_boss() -> void:
 func spawn_screamer_minions(pos: Vector3) -> void:
 	if is_boss_round() or not can_world_update():
 		return
-	if get_tree().get_nodes_in_group("zombie").size() >= get_active_zombie_cap(round_number):
+	if get_enemies().size() >= get_active_zombie_cap(round_number):
 		return
 	for i in range(2):
 		_spawn_zombie("walker", pos)
@@ -1324,7 +1414,7 @@ func enemy_ranged_attack(zombie: Node3D, amount: float) -> void:
 func exploder_burst(pos: Vector3) -> void:
 	if player != null and player.global_position.distance_to(pos) <= 3.3:
 		player.apply_damage(24.0 * get_zombie_damage_multiplier(round_number))
-	for z in get_tree().get_nodes_in_group("zombie"):
+	for z in get_enemies():
 		if is_instance_valid(z) and z.global_position.distance_to(pos) <= 3.5:
 			z.take_damage(80.0)
 	_make_burst(pos, Color(1.0, 0.28, 0.05), 3.4)
@@ -1401,7 +1491,7 @@ func _line_of_sight(start: Vector3, target: Vector3) -> bool:
 func find_nearest_zombie(origin: Vector3, max_distance: float) -> Node3D:
 	var nearest: Node3D
 	var best_distance = max_distance
-	for candidate in get_tree().get_nodes_in_group("zombie"):
+	for candidate in get_enemies():
 		if not is_instance_valid(candidate) or candidate.dead:
 			continue
 		var distance = origin.distance_to(candidate.global_position)
@@ -1442,7 +1532,7 @@ func _update_auto_attacks(delta: float) -> void:
 			continue
 		var launch_origin: Vector3 = ability_effects.companion_origin(id) if ability_effects != null else origin + Vector3.UP * .9
 		if id == "auto_orbit":
-			var candidates = get_tree().get_nodes_in_group("zombie").filter(func(z): return is_instance_valid(z) and not z.dead and z.global_position.distance_to(origin) <= get_auto_attack_range(id, lv))
+			var candidates = get_enemies().filter(func(z): return is_instance_valid(z) and not z.dead and z.global_position.distance_to(origin) <= get_auto_attack_range(id, lv))
 			candidates.shuffle()
 			for i in range(2 + lv if not candidates.is_empty() else 0):
 				_launch_ability_attack(id, launch_origin, candidates[i % candidates.size()], damage, 2.0 + .2 * lv)
@@ -1469,13 +1559,15 @@ func resolve_ability_impact(id: String, point: Vector3, enemy: Node3D, damage: f
 	# Deal damage when the illustration reaches its target, using the same
 	# world position for the visible impact and any area damage.
 	if id in ["auto_missile", "auto_orbit"]:
-		for z in get_tree().get_nodes_in_group("zombie"):
+		for z in get_enemies():
 			if is_instance_valid(z) and not z.dead:
 				var dist: float = z.global_position.distance_to(point)
 				if dist <= radius:
 					z.take_damage(damage * 0.6 * lerpf(1.0, 0.45, dist / radius))
 	if hit_target and is_instance_valid(enemy) and not enemy.dead:
 		enemy.take_damage(damage)
+	if id in ["auto_missile","auto_orbit"]: _play_sfx("explosion")
+	elif id == "auto_shock": _play_sfx("electric_trap")
 	var effect = SpriteVisuals.make_attack_sprite(id, true, radius * 2.0 if radius > 0.0 else (1.8 if id == "auto_flame" else 1.3))
 	add_child(effect)
 	effect.global_position = point
@@ -1516,7 +1608,7 @@ func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float
 	var end = _obstacle_endpoint(start, start + forward * max_range)
 	var visible_range = start.distance_to(end)
 	var hits: Array = []
-	for z in get_tree().get_nodes_in_group("zombie"):
+	for z in get_enemies():
 		if not is_instance_valid(z):
 			continue
 		var rel: Vector3 = z.global_position - start
@@ -1541,7 +1633,7 @@ func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float
 	return end
 
 func _fire_cone(start: Vector3, forward: Vector3, max_range: float, sin_half_angle: float, damage: float, shotgun: bool) -> void:
-	for z in get_tree().get_nodes_in_group("zombie"):
+	for z in get_enemies():
 		if not is_instance_valid(z):
 			continue
 		var rel: Vector3 = z.global_position - start
@@ -1559,13 +1651,14 @@ func _fire_cone(start: Vector3, forward: Vector3, max_range: float, sin_half_ang
 			z.take_damage(applied)
 
 func _explosion(point: Vector3, radius: float, damage: float) -> void:
-	for z in get_tree().get_nodes_in_group("zombie"):
+	for z in get_enemies():
 		if not is_instance_valid(z):
 			continue
 		var dist = z.global_position.distance_to(point)
 		if dist <= radius:
 			var falloff = lerp(1.0, 0.45, dist / radius)
 			z.take_damage(damage * falloff)
+	_play_sfx("explosion")
 	_make_burst(point, Color(1.0, 0.34, 0.06), radius)
 
 func _launch_explosive(start: Vector3, end: Vector3, color: Color, radius: float, damage: float, speed: float) -> void:
@@ -1663,6 +1756,7 @@ func _make_burst(pos: Vector3, color: Color, radius: float) -> void:
 	_play_reference_impact(Vector3(pos.x, 0.9, pos.z), "blade" if color.b > 0.8 else "explosion", clampf(radius * 0.9, 1.0, 5.5))
 
 func on_zombie_killed(_zombie: Node, kind: String, pos: Vector3) -> void:
+	_enemy_frame = -1
 	_play_reference_impact(pos + Vector3.UP * 0.5, "blood", 1.35)
 	kills += 1
 	score += int(zombie_points.get(kind, 10))
@@ -1682,7 +1776,7 @@ func is_boss_round() -> bool:
 	return round_number > 0 and round_number % 10 == 0
 
 func active_boss() -> Node3D:
-	for enemy in get_tree().get_nodes_in_group("zombie"):
+	for enemy in get_enemies():
 		if is_instance_valid(enemy) and not enemy.is_queued_for_deletion() and not enemy.dead and enemy.kind in ["boss", "final_boss"]:
 			return enemy
 	return null
@@ -1948,13 +2042,16 @@ func collect_pickup(pickup: Node, body: Node) -> void:
 	else:
 		match pickup.payload:
 			"bomb":
-				for z in get_tree().get_nodes_in_group("zombie"):
+				_flash_bomb()
+				_play_sfx("explosion")
+				for z in get_enemies():
 					if is_instance_valid(z):
 						z.take_damage(300.0)
 			"xp_burst":
 				_add_xp(80 + round_number * 2)
 			_:
 				player.store_item(pickup.payload)
+				if pickup.payload == "armor": player.add_energy_guard()
 				_save_checkpoint(round_number)
 	pickup.queue_free()
 
@@ -1964,6 +2061,9 @@ func on_player_dead() -> void:
 	_end_run(false)
 
 func _end_run(win: bool) -> void:
+	if game_active: _save_checkpoint(round_number)
+	if player != null and not account_service.logged_in(): player.item_inventory.clear()
+	item_toolbar.hide()
 	game_active = false
 	game_menu_button.hide()
 	game_menu_panel.hide()
@@ -2079,15 +2179,9 @@ func _on_submit_done(ok: bool, message: String) -> void:
 func _update_camera() -> void:
 	if camera == null or player == null:
 		return
-	# Keep orientation fixed and the frame still inside a central dead zone.
-	var focus = camera.global_position - Vector3(0, 23.0, 17.0)
-	var gap = player.global_position - focus
-	var deadzone = 3.0
-	if abs(gap.x) > deadzone:
-		focus.x += gap.x - sign(gap.x) * deadzone
-	if abs(gap.z) > deadzone:
-		focus.z += gap.z - sign(gap.z) * deadzone
-	camera.global_position = focus + Vector3(0, 23.0, 17.0)
+	# Use the sprite's visual center as the camera target, including its height.
+	var center = player.global_position + Vector3.UP * .67
+	camera.global_position = center + Vector3(0,23.0,17.0)
 
 func _update_hud() -> void:
 	if round_label == null:
@@ -2103,6 +2197,8 @@ func _update_hud() -> void:
 	score_label.text = "점수 %d · 처치 %d" % [score, kills]
 	if player != null and is_instance_valid(player):
 		hp_label.text = "HP %d / %d · Lv.%d" % [int(ceil(player.hp)), int(player.max_hp), level]
+		guard_label.text = "에너지가드 %d / %d" % [int(ceil(player.energy_guard)),int(player.energy_guard_max)]
+		guard_label.visible = game_active
 		xp_bar.max_value = xp_needed
 		xp_bar.value = xp
 		xp_label.text = "LV %d · XP %d / %d" % [level, xp, xp_needed]
@@ -2117,6 +2213,10 @@ func _update_hud() -> void:
 			ammo = "%d" % player.current_special_ammo()
 		weapon_label.text = "%s · %s" % [name, ammo]
 		_update_weapon_buttons()
+		for id in item_buttons:
+			var count = int(player.item_inventory.get(id,0))
+			item_buttons[id].text = "%s ×%d" % [{"heal":"회복","speed":"속도","damage":"공격","armor":"갑옷","invuln":"무적"}[id],count]
+			item_buttons[id].disabled = count <= 0
 	else:
 		hp_label.text = ""
 		xp_label.text = ""
@@ -2145,10 +2245,11 @@ func _update_weapon_buttons() -> void:
 	touch_weapon_buttons[3].disabled = player.selected_slot != 0 or player.base_weapon_id != "pistol" or player.reloading or player.base_mag >= player.base_mag_max
 
 func _clear_zombies_and_pickups() -> void:
+	_enemy_frame = -1
 	for group in ["boss_projectile", "ability_projectile", "shock_trap", "melee_effect"]:
 		for projectile in get_tree().get_nodes_in_group(group):
 			projectile.queue_free()
-	for z in get_tree().get_nodes_in_group("zombie"):
+	for z in get_enemies():
 		if is_instance_valid(z):
 			z.queue_free()
 	for child in get_children():

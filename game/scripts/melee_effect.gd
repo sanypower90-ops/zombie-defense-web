@@ -15,6 +15,7 @@ func setup(owner_game: Node3D, id: String, point: Vector3, forward: Vector3, dis
 	reach = distance
 	sprite = Sprite3D.new()
 	sprite.shaded = false
+	sprite.flip_h = id == "sword"
 	add_child(sprite)
 	add_to_group("melee_effect")
 	set_meta("kind",kind)

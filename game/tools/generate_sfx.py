@@ -24,6 +24,9 @@ SPECS = {
     "player_hurt": (.34, "body impact and short low vocal grunt"),
     "boss_warning": (.40, "two rising warning tones"),
     "boss_launch": (.24, "missile launch clank and hiss"),
+    "round_change": (.65, "ascending three-note round transition"),
+    "electric_trap": (.32, "electrical crackle and resonant zap"),
+    "explosion": (.65, "deep explosion with gritty debris tail"),
 }
 
 def create(name, duration):
@@ -75,6 +78,13 @@ def create(name, duration):
             v = .85 * tone(90) * decay(21) + n * decay(60) + .5 * (tone(125) + .35 * tone(375) + .18 * tone(625)) * decay(9)
         elif name == "boss_warning":
             v = (.55 * tone(620 if t < .17 else 880) + .16 * tone(1240)) * min(1,t*100) * min(1,(duration-t)*60)
+        elif name == "round_change":
+            note = min(2, int(t / .18))
+            v = (.7 * tone([523, 659, 784][note]) + .2 * tone([1046, 1318, 1568][note])) * math.exp(-8 * (t % .18)) * min(1,(duration-t)*25)
+        elif name == "electric_trap":
+            v = (high * .5 + .7 * math.sin(2*math.pi*(1700*t-2200*t*t) + 2*tone(73))) * decay(11)
+        elif name == "explosion":
+            v = low * 3 * decay(7) + .8 * math.sin(2*math.pi*(90*t-60*t*t)) * decay(9) + n * decay(17)
         else:
             v = n * decay(28) + tone(145) * decay(16) + low * 1.2 * decay(8)
         values.append(v)

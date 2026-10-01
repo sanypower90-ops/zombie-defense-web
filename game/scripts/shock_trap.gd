@@ -35,7 +35,8 @@ func advance(delta: float) -> void:
 	ring.modulate.a = .35 + .35 * (sin(age * 12) + 1) / 2
 	if pulse < .8: return
 	pulse = 0.0
-	for enemy in get_tree().get_nodes_in_group("zombie"):
+	game._play_sfx("electric_trap")
+	for enemy in game.get_enemies():
 		if not is_instance_valid(enemy) or enemy.dead: continue
 		if Vector2(enemy.global_position.x-global_position.x,enemy.global_position.z-global_position.z).length() <= radius:
 			enemy.take_damage(damage)

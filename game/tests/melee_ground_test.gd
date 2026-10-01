@@ -12,7 +12,7 @@ func run_checks() -> void:
 	game.save_manager.save_path = "/tmp/v7-melee-%d.json" % Time.get_ticks_usec()
 	game.start_new_game()
 	game.gameplay_paused = true
-	if not check(is_equal_approx(game.weapon_data.sword.range,5.5*1.3) and is_equal_approx(game.weapon_data.fist.range,1.8*1.3),"Both melee ranges must increase exactly 30 percent"): return
+	if not check(is_equal_approx(game.weapon_data.sword.range,5.5*1.3) and is_equal_approx(game.weapon_data.fist.range,1.8*1.3*1.5),"Both melee ranges must increase exactly 30 percent"): return
 	var effect = game._show_melee_effect("fist",Vector3.ZERO,Vector3.RIGHT,2.34)
 	var initial_size: float = effect.sprite.scale.x
 	effect.advance(.12)
@@ -22,7 +22,7 @@ func run_checks() -> void:
 	if not check(effect.elapsed == clock,"Melee effect must stop while paused"): return
 	var slash = game._show_melee_effect("sword",Vector3.ZERO,Vector3.FORWARD,7.15)
 	if not check(slash.sprite.texture == Visuals.isolated_grid_texture(Visuals.MELEE_FX,0),"Sword must use blue crescent art"): return
-	var preview = Image.create(800,432,false,Image.FORMAT_RGBA8)
+	var preview = Image.create(1200,432,false,Image.FORMAT_RGBA8)
 	preview.fill(Color(.12,.15,.19))
 	var preview_index = 0
 	var textures = {}
@@ -30,9 +30,9 @@ func run_checks() -> void:
 		for direction in range(8):
 			var texture = Visuals.armed_frame(direction,"walk",1,id)
 			var image = texture.get_image()
-			if not check(image.get_size() == Vector2i(160,144) and image.get_used_rect().size.y > 90,"Armed character has empty or broken body: " + id): return
+			if not check(image.get_size() == Vector2i(240,144) and image.get_used_rect().size.y > 90,"Armed character has empty or broken body: " + id): return
 		var frame_image = Visuals.armed_frame(2,"idle",0,id).get_image()
-		preview.blit_rect(frame_image,Rect2i(0,0,160,144),Vector2i((preview_index%5)*160,(preview_index/5)*144))
+		preview.blit_rect(frame_image,Rect2i(0,0,240,144),Vector2i((preview_index%5)*240,(preview_index/5)*144))
 		preview_index += 1
 		textures[hash(frame_image.get_data())] = true
 	if not check(textures.size() == 10,"All ten gun types must have different held artwork"): return

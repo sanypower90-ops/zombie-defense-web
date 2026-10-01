@@ -23,8 +23,8 @@ func _run() -> void:
 		return
 	game.start_new_game()
 	await process_frame
-	if game.player == null or game.round_time_left <= 29.0 or game.round_time_left > 30.0:
-		push_error("Game start or 30-second round failed")
+	if game.player == null or game.round_time_left <= 19.0 or game.round_time_left > 20.0:
+		push_error("Game start or 20-second round failed")
 		quit(1)
 		return
 	if game.spawn_target != 150 or game.get_active_zombie_cap(1) < 150:
@@ -285,8 +285,8 @@ func _run() -> void:
 		quit(1)
 		return
 	game.start_new_game()
-	if game.round_number != 1 or game.score != 0 or int(game.player.item_inventory.get("armor", 0)) < 1 or game.nickname_panel.visible:
-		push_error("Start should reset the run but keep collected items")
+	if game.round_number != 1 or game.score != 0 or int(game.player.item_inventory.get("armor", 0)) != 0 or game.nickname_panel.visible:
+		push_error("Guest restart should clear the previous run inventory")
 		quit(1)
 		return
 	game._on_top10_ready([], false, "late")
@@ -309,7 +309,7 @@ func _run() -> void:
 	zombie_visual.free()
 	game.save_manager.clear_checkpoint()
 	DirAccess.remove_absolute(game.save_manager.player_name_path)
-	print("SMOKE_TEST_PASS: start resets round and score, local item stash and name persist, ranking is result-only, mobile one-stick control, fixed camera, 30-second round, cover, BGM")
+	print("SMOKE_TEST_PASS: start resets round and score, guest inventory resets and player name persists, ranking is result-only, mobile one-stick control, fixed camera, 20-second round, cover, BGM")
 	game.queue_free()
 	await process_frame
 	quit(0)
