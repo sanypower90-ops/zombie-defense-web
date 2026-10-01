@@ -1,6 +1,7 @@
 extends CharacterBody3D
 
 const VisualFactory = preload("res://scripts/visual_factory.gd")
+const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
 const PLAYER_VISUAL_SCALE := 1.4
 
 var game: Node
@@ -36,6 +37,8 @@ var invuln_until = 0.0
 var hurt_cooldown_until = 0.0
 var weapon_mount: Node3D
 var visual_root: Node3D
+var sprite_visual: Sprite3D
+var weapon_icon: Sprite3D
 var visual_weapon_id = ""
 var weapon_name_label: Label3D
 var walk_phase = 0.0
@@ -59,6 +62,11 @@ func _build_visual() -> void:
 	visual_root = VisualFactory.player_visual()
 	visual_root.scale = Vector3.ONE * PLAYER_VISUAL_SCALE
 	add_child(visual_root)
+	visual_root.hide()
+	sprite_visual = SpriteVisuals.make_player()
+	add_child(sprite_visual)
+	weapon_icon = SpriteVisuals.make_weapon_icon("pistol")
+	add_child(weapon_icon)
 	weapon_mount = visual_root.get_node("WeaponMount")
 	visual_weapon_id = "pistol"
 	VisualFactory.set_player_weapon(weapon_mount, visual_weapon_id)
@@ -77,6 +85,7 @@ func _physics_process(delta: float) -> void:
 	if not game.can_player_act():
 		velocity = Vector3.ZERO
 		VisualFactory.animate_player(visual_root, walk_phase, 0.0, 0.0)
+		SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, 0.0, 0.0)
 		return
 	_update_reload(delta)
 	_handle_selection_keys()
@@ -85,6 +94,7 @@ func _physics_process(delta: float) -> void:
 	if weapon_id != visual_weapon_id and weapon_mount != null:
 		visual_weapon_id = weapon_id
 		VisualFactory.set_player_weapon(weapon_mount, weapon_id)
+		SpriteVisuals.set_weapon_icon(weapon_icon, weapon_id)
 	_move_player()
 	_aim_at_pointer()
 	_handle_fire()
@@ -92,6 +102,7 @@ func _physics_process(delta: float) -> void:
 	walk_phase += delta * (9.0 if motion > 0.05 else 2.0)
 	recoil_left = max(recoil_left - delta * 6.0, 0.0)
 	VisualFactory.animate_player(visual_root, walk_phase, motion, recoil_left)
+	SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, motion, recoil_left)
 
 func _input(event: InputEvent) -> void:
 	# Touch release is processed even while paused so a finger never remains stuck.

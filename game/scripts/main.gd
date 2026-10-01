@@ -8,6 +8,7 @@ const LeaderboardScript = preload("res://scripts/leaderboard.gd")
 const AccountServiceScript = preload("res://scripts/account_service.gd")
 const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
+const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
 
 const ROUND_DURATION := 30.0
 const MAX_ROUND := 100
@@ -354,7 +355,10 @@ func _make_prop(kind: String, pos: Vector3, size: Vector3, color: Color) -> void
 	body.collision_layer = 4
 	body.collision_mask = 1 | 2
 	body.position = pos
-	body.add_child(VisualFactory.prop_visual(kind, size, color))
+	var old_visual = VisualFactory.prop_visual(kind, size, color)
+	body.add_child(old_visual)
+	old_visual.hide()
+	body.add_child(SpriteVisuals.make_prop(kind, size))
 	var collision = CollisionShape3D.new()
 	var shape = BoxShape3D.new()
 	shape.size = size
@@ -1317,9 +1321,10 @@ func _rebuild_clones() -> void:
 	if player == null:
 		return
 	for i in range(clamp(int(upgrades.get("clone", 0)), 0, 2)):
-		var clone = VisualFactory.player_visual()
-		clone.scale = Vector3.ONE * 1.12
+		var clone = Node3D.new()
 		add_child(clone)
+		var clone_sprite = SpriteVisuals.make_player()
+		clone.add_child(clone_sprite)
 		clone.global_position = player.global_position + Vector3(-2.0 if i == 0 else 2.0, 0, 1.5)
 		clone_visuals.append(clone)
 
@@ -1332,6 +1337,7 @@ func _update_clones() -> void:
 		var target = player.global_position + Vector3(-2.0 if i == 0 else 2.0, 0, 1.5)
 		clone.global_position = clone.global_position.lerp(target, 0.11)
 		clone.rotation.y = player.rotation.y
+		SpriteVisuals.update_player(clone.get_node("PlayerSprite"), clone.rotation.y, player.walk_phase, clamp(player.velocity.length() / max(player.base_move_speed, 0.01), 0.0, 1.0), player.recoil_left)
 
 func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float, damage: float, penetrate: bool) -> Vector3:
 	var end = _obstacle_endpoint(start, start + forward * max_range)
@@ -1428,6 +1434,9 @@ func _make_tracer(start: Vector3, end: Vector3, color: Color, speed: float, thic
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	tracer.material_override = mat
 	add_child(tracer)
+	var shot_sprite = SpriteVisuals.make_shot(color)
+	add_child(shot_sprite)
+	shot_sprite.global_position = start
 	tracer.global_position = start
 	tracer.look_at(end, Vector3.UP)
 	var duration = clamp(distance / max(speed, 1.0), 0.16, 0.48)
@@ -1435,6 +1444,9 @@ func _make_tracer(start: Vector3, end: Vector3, color: Color, speed: float, thic
 	tween.tween_property(tracer, "global_position", end, duration)
 	tween.tween_interval(0.06)
 	tween.tween_callback(tracer.queue_free)
+	var shot_tween = create_tween()
+	shot_tween.tween_property(shot_sprite, "global_position", end, duration)
+	shot_tween.tween_callback(shot_sprite.queue_free)
 
 func _make_beam(start: Vector3, end: Vector3, color: Color, width: float, lifetime: float = 0.16) -> void:
 	var length = start.distance_to(end)
@@ -1456,6 +1468,12 @@ func _make_beam(start: Vector3, end: Vector3, color: Color, width: float, lifeti
 	get_tree().create_timer(max(lifetime, 0.05)).timeout.connect(beam.queue_free)
 
 func _make_burst(pos: Vector3, color: Color, radius: float) -> void:
+	var impact_sprite = SpriteVisuals.make_impact(color, radius)
+	add_child(impact_sprite)
+	impact_sprite.global_position = Vector3(pos.x, 0.85, pos.z)
+	var impact_tween = create_tween()
+	impact_tween.tween_property(impact_sprite, "scale", Vector3.ONE * 1.6, 0.2)
+	impact_tween.tween_callback(impact_sprite.queue_free)
 	var burst = MeshInstance3D.new()
 	var sphere = SphereMesh.new()
 	sphere.radius = radius * 0.35

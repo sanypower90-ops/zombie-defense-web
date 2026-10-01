@@ -1,6 +1,7 @@
 extends CharacterBody3D
 
 const VisualFactory = preload("res://scripts/visual_factory.gd")
+const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
 
 var game: Node
 var kind = "walker"
@@ -16,6 +17,7 @@ var next_special_time = 0.0
 var regen_per_second = 0.0
 var dead = false
 var visual_root: Node3D
+var sprite_visual: Sprite3D
 var walk_phase = 0.0
 var attack_left = 0.0
 var hurt_left = 0.0
@@ -120,6 +122,9 @@ func _build_visual() -> void:
 
 	visual_root = VisualFactory.zombie_visual(kind)
 	add_child(visual_root)
+	visual_root.hide()
+	sprite_visual = SpriteVisuals.make_zombie(kind)
+	add_child(sprite_visual)
 
 func _color_for_kind() -> Color:
 	match kind:
@@ -189,6 +194,10 @@ func _animate_visual(delta: float) -> void:
 	attack_left = max(attack_left - delta * 3.8, 0.0)
 	hurt_left = max(hurt_left - delta * 5.0, 0.0)
 	VisualFactory.animate_zombie(visual_root, walk_phase, motion, attack_left, hurt_left)
+	var facing := velocity
+	if game != null and game.player != null:
+		facing = game.player.global_position - global_position
+	SpriteVisuals.update_zombie(sprite_visual, kind, facing, walk_phase, motion, attack_left, hurt_left)
 
 func take_damage(amount: float) -> void:
 	if dead:
@@ -210,6 +219,7 @@ func die() -> void:
 	if game != null:
 		game.play_zombie_death_sfx(kind)
 		game.on_zombie_killed(self, kind, global_position)
+	SpriteVisuals.show_zombie_death(sprite_visual, kind)
 	var fall = create_tween()
 	fall.set_parallel(true)
 	fall.tween_property(visual_root, "rotation:z", 1.35, 0.32)
