@@ -242,7 +242,7 @@ func _drop_boss_rewards() -> void:
 	var crossed = clampi(int(floor((1.0-maxf(hp,0.0)/max_hp+.000001)*10)),0,10)
 	while reward_thresholds < crossed:
 		reward_thresholds += 1
-		var choices = ["heal","speed","damage","armor","invuln","bomb","xp_burst"]
+		var choices = ["heal","speed","damage","armor","invuln","bomb","xp_burst","air_raid"]
 		choices.shuffle()
 		var count = randi_range(1,5)
 		for i in range(count):

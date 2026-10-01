@@ -76,8 +76,8 @@ func _display_name() -> String:
 	if pickup_kind == "weapon" and game != null:
 		return str(game.get_weapon_data(payload).get("name", payload))
 	var names = {
-		"heal":"회복", "speed":"이동 속도", "damage":"공격 강화",
-		"armor":"방어", "invuln":"무적", "bomb":"폭탄", "xp_burst":"경험치"
+		"heal":"구급약 +5", "speed":"이동 속도", "damage":"공격 강화",
+		"armor":"에너지 +5", "invuln":"무적", "bomb":"폭탄", "xp_burst":"경험치", "air_raid":"비행기 폭격"
 	}
 	return str(names.get(payload, payload))
 

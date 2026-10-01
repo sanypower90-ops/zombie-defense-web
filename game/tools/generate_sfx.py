@@ -19,7 +19,8 @@ SPECS = {
     "flamethrower": (.18, "continuous filtered rushing flame"),
     "sniper": (.60, "long sharp crack with spaced echoes"),
     "rocket": (.60, "rising rocket engine rush"),
-    "laser": (.42, "bright descending frequency-modulated beam"),
+    "laser": (.36, "sustained electronic ziiing laser discharge"),
+    "air_raid": (2.6, "aircraft turbine flyby with stereo-like Doppler sweep"),
     "zombie": (.36, "wet splat with a low gurgle"),
     "player_hurt": (.34, "body impact and short low vocal grunt"),
     "boss_warning": (.40, "two rising warning tones"),
@@ -70,8 +71,12 @@ def create(name, duration):
             env = min(1, t * 50) * math.sin(math.pi * t / duration) ** .65
             v = (low * 2.5 + .3 * high + .35 * math.sin(2 * math.pi * (50 * t + 110 * t*t))) * env
         elif name == "laser":
-            carrier = 1800 * t - 1400 * t*t
-            v = math.sin(2 * math.pi * carrier + 2.5 * tone(110)) * decay(6) + .18 * tone(3600) * decay(18)
+            env = min(1,t*90) * min(1,(duration-t)*20)
+            frequency = 1250*t-450*t*t
+            v = (math.sin(2*math.pi*frequency+1.8*tone(65))+.3*tone(2400)+.1*n)*env
+        elif name == "air_raid":
+            env = math.sin(math.pi*t/duration)**1.4
+            v = (.6*n+.4*math.sin(2*math.pi*(100*t-12*t*t))+.15*tone(700))*env
         elif name == "zombie":
             v = low * 2 * decay(11) + .4 * tone(61) * decay(10) + high * decay(42) * (.5 + .5 * tone(53))
         elif name == "player_hurt":

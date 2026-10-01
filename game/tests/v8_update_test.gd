@@ -30,7 +30,7 @@ func run_checks() -> void:
 		if not check(center.distance_to(root.get_visible_rect().size*.5)<.1 and game.camera.global_basis.is_equal_approx(rotation),"Camera must center the player at every map position without rotating"):return
 	var slash = game._show_melee_effect("sword",Vector3.ZERO,Vector3.RIGHT,7.15)
 	if not check(slash.sprite.flip_h,"Blue crescent must bulge forward instead of backwards"):return
-	game.player.hp = 70
+	game.player.hp = 95
 	game.player.store_item("heal")
 	game._update_hud()
 	if not check(game.item_buttons.heal.text.contains("×1") and not game.item_buttons.heal.disabled,"Quick item toolbar must show inventory"):return
@@ -42,9 +42,9 @@ func run_checks() -> void:
 	game.player.invuln_until = 0.0
 	game.player.hurt_cooldown_until = 0.0
 	game.player.add_energy_guard()
-	game.player.apply_damage(20)
+	game.player.apply_damage(2)
 	game._update_hud()
-	if not check(game.player.hp == 100 and game.player.energy_guard == 40 and game.guard_label.text.contains("에너지가드"),"Guard must absorb damage before HP and show separately"):return
+	if not check(game.player.hp == 100 and game.player.energy_guard == 3 and game.guard_label.text.contains("에너지가드"),"Guard must absorb damage before HP and show separately"):return
 	game.player.store_item("speed")
 	game._save_checkpoint(2)
 	if not check(not game.save_manager.has_checkpoint(),"Guest stash must never be persisted"):return

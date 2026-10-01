@@ -68,7 +68,9 @@ func _run() -> void:
 			return
 	var moving = SpriteVisuals.make_player()
 	SpriteVisuals.update_player(moving, PI, TAU / 4.0, 1.0, 1.0)
-	if moving.texture != SpriteVisuals.armed_frame(0, "walk", 1, "pistol"):
+	var walking_shot = moving.texture.get_image().get_data()
+	SpriteVisuals.update_player(moving, PI, TAU * .75, 1.0, 1.0)
+	if moving.texture.get_image().get_data() == walking_shot:
 		push_error("Firing freezes the player's walking feet")
 		quit(1)
 		return

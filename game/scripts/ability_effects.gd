@@ -7,7 +7,7 @@ const FONT = preload("res://assets/fonts/NotoSansKR.ttf")
 const EFFECT_TIME := 2.4
 const ITEM_NAMES := {
 	"heal": "응급 키트", "speed": "이동 강화", "damage": "공격 강화",
-	"armor": "방어 강화", "invuln": "무적", "bomb": "폭탄", "xp_burst": "경험치"
+	"armor": "방어 강화", "invuln": "무적", "bomb": "폭탄", "air_raid":"비행기 폭격", "xp_burst": "경험치"
 }
 const ABILITY_NAMES := {
 	"damage": "화력", "fire_rate": "연사", "move_speed": "기동",

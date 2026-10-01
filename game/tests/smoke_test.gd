@@ -27,7 +27,7 @@ func _run() -> void:
 		push_error("Game start or 20-second round failed")
 		quit(1)
 		return
-	if game.spawn_target != 150 or game.get_active_zombie_cap(1) < 150:
+	if game.spawn_target != 150 or game.get_active_zombie_cap(1) != 32:
 		push_error("Round 1 zombie count was not increased tenfold")
 		quit(1)
 		return

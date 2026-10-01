@@ -13,6 +13,7 @@ const MeleeEffect = preload("res://scripts/melee_effect.gd")
 const GROUND_TEXTURE = preload("res://assets/sprites/ground_v7.png")
 const ShockTrap = preload("res://scripts/shock_trap.gd")
 const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
+const AirRaid = preload("res://scripts/air_raid.gd")
 const OrbitGuard = preload("res://scripts/orbit_guard.gd")
 const BossProjectile = preload("res://scripts/boss_projectile.gd")
 
@@ -109,7 +110,7 @@ var weapon_data = {
 	"flamethrower": {"name":"화염방사기", "damage":18.0, "fire_rate":12.0, "range":8.0, "ammo_max":120},
 	"sniper": {"name":"저격총", "damage":220.0, "fire_rate":1.2, "range":34.0, "ammo_max":40},
 	"rocket": {"name":"로켓런처", "damage":420.0, "fire_rate":0.7, "range":22.0, "ammo_max":8},
-	"laser": {"name":"블루 레이저 캐논", "damage":1500.0, "fire_rate":0.55, "range":38.0, "ammo_max":5}
+	"laser": {"name":"블루 레이저건", "damage":1500.0, "fire_rate":0.55, "range":38.0, "ammo_max":5}
 }
 
 var zombie_points = {
@@ -178,6 +179,7 @@ func _ready() -> void:
 
 	_build_world()
 	_build_ui()
+	_apply_home_font(menu_panel)
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	call_deferred("_on_viewport_resized")
 	_show_main_menu()
@@ -221,7 +223,7 @@ func _toggle_music() -> void:
 		boss_music.stop()
 
 func _build_sfx() -> void:
-	for sound_id in ["pistol", "sword", "fist", "shotgun", "smg", "rifle", "lmg", "grenade", "flamethrower", "sniper", "rocket", "laser", "zombie", "player_hurt", "boss_warning", "boss_launch", "round_change", "electric_trap", "explosion"]:
+	for sound_id in ["pistol", "sword", "fist", "shotgun", "smg", "rifle", "lmg", "grenade", "flamethrower", "sniper", "rocket", "laser", "zombie", "player_hurt", "boss_warning", "boss_launch", "round_change", "electric_trap", "explosion", "air_raid"]:
 		sfx_streams[sound_id] = load("res://assets/audio/sfx/%s.wav" % sound_id)
 	for i in range(24):
 		var voice = AudioStreamPlayer.new()
@@ -909,7 +911,7 @@ func _refresh_character_panel() -> void:
 	var inventory_label = Label.new()
 	inventory_label.text = "보관 아이템 (게임을 시작하면 사용 가능)" if player == null else "보관 아이템 (눌러서 사용)"
 	character_box.add_child(inventory_label)
-	var names = {"heal":"응급 키트", "speed":"이동 강화", "damage":"공격 강화", "armor":"방어 강화", "invuln":"무적"}
+	var names = {"heal":"구급약 +5", "speed":"이동 강화", "damage":"공격 강화", "armor":"에너지 회복 +5", "invuln":"무적"}
 	for id in names.keys():
 		var count = int(inventory.get(id, 0))
 		var item_button = Button.new()
@@ -949,7 +951,8 @@ func _use_quick_item(id: String) -> void:
 func _flash_bomb() -> void:
 	flash_overlay.color.a = .65
 	var tween = create_tween()
-	tween.tween_property(flash_overlay,"color:a",0.0,.07)
+	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(flash_overlay,"color:a",0.0,.21)
 
 func _build_touch_controls(hud: Control) -> void:
 	touch_controls = Control.new()
@@ -1075,7 +1078,7 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	var menu_area_height = view_size.y - menu_area_top - 16.0
 	var home_scale = minf(menu_panel.scale.x,menu_area_height/menu_panel.size.y)
 	menu_panel.scale = Vector2.ONE * home_scale
-	menu_panel.position = Vector2((view_size.x-menu_panel.size.x*home_scale)*.5,menu_area_top+(menu_area_height-menu_panel.size.y*home_scale)*.5)
+	menu_panel.position = Vector2((view_size.x-menu_panel.size.x*home_scale)*.5,menu_area_top + 8.0)
 	hud_top_left.visible = game_active
 	if touch_left_zone == null:
 		return
@@ -1120,6 +1123,12 @@ func _make_touch_zone(text: String, position: Vector2, size: Vector2) -> PanelCo
 	label.add_theme_font_size_override("font_size", 28)
 	panel.add_child(label)
 	return panel
+
+func _apply_home_font(node: Node) -> void:
+	if node is Button or node is Label:
+		node.add_theme_font_override("font",preload("res://assets/fonts/ChosunCentennial.otf"))
+		node.add_theme_color_override("font_color",Color.WHITE)
+	for child in node.get_children(): _apply_home_font(child)
 
 func _set_responsive_fonts(node: Node, font_size: int) -> void:
 	if node is Button or node is Label or node is LineEdit:
@@ -1326,19 +1335,13 @@ func _handle_spawning(delta: float) -> void:
 func get_round_spawn_target(r: int) -> int:
 	if r % 10 == 0:
 		return 0
-	var base = 15 + int(floor(float(r - 1) * 0.22))
-	var multiplier = 1.0
-	for threshold in SPECIAL_COUNT_BOOST_ROUNDS:
-		if r >= threshold:
-			multiplier *= 1.30
-	return max(1, int(round(float(base) * multiplier))) * 10
+	return 150 + 10 * maxi(0,r-1)
 
 func get_active_zombie_cap(r: int) -> int:
-	var cap = min(150 + int(float(r) * 2.0), 240)
-	return min(cap, 160) if OS.has_feature("mobile") else cap
+	return mini(32 + 4 * maxi(0,r-1),72)
 
 func get_zombie_hp_multiplier(r: int) -> float:
-	return min(1.0 + float(r - 1) * 0.012, 2.20)
+	return 1.0 + float(maxi(0,r-1)) * .06
 
 func get_zombie_damage_multiplier(r: int) -> float:
 	return min(1.0 + float(r - 1) * 0.006, 1.60)
@@ -1481,8 +1484,8 @@ func fire_weapon(shooter: Node3D, weapon_id: String) -> bool:
 		"laser":
 			var laser_damage = damage * get_energy_damage_multiplier()
 			var hit_width = 1.15 if int(upgrades.get("energy", 0)) >= 4 else 0.72
-			var laser_end = _fire_line(start, forward, max_range, hit_width, laser_damage, true)
-			_make_beam(start, laser_end, Color(0.10, 0.62, 1.0), 0.26 if hit_width < 1.0 else 0.38, 0.34)
+			var laser_end = _fire_line(start, forward, max_range, hit_width, laser_damage, true, "laser")
+			_make_beam(start, laser_end, Color(0.10, 0.62, 1.0), 0.26 if hit_width < 1.0 else 0.38, 0.3)
 		_:
 			var penetrate = weapon_id == "rifle" and int(upgrades.get("damage", 0)) >= 4
 			var bullet_end = _fire_line(start, forward, max_range, 0.34, damage, penetrate)
@@ -1622,7 +1625,7 @@ func _update_clones() -> void:
 		clone.rotation.y = player.rotation.y
 		SpriteVisuals.update_player(clone.get_node("PlayerSprite"), clone.rotation.y, player.walk_phase, clamp(player.velocity.length() / max(player.base_move_speed, 0.01), 0.0, 1.0), player.recoil_left)
 
-func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float, damage: float, penetrate: bool) -> Vector3:
+func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float, damage: float, penetrate: bool, weapon_id: String = "") -> Vector3:
 	var end = _obstacle_endpoint(start, start + forward * max_range)
 	var visible_range = start.distance_to(end)
 	var hits: Array = []
@@ -1641,7 +1644,7 @@ func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float
 	hits.sort_custom(func(a, b): return float(a["d"]) < float(b["d"]))
 	if penetrate:
 		for h in hits:
-			h["z"].take_damage(damage)
+			h["z"].take_damage(_laser_boss_damage(damage) if weapon_id == "laser" and h["z"].kind in ["boss","final_boss"] else damage)
 		return end
 	if not hits.is_empty():
 		var target = hits[0]["z"]
@@ -1649,6 +1652,24 @@ func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float
 		target.take_damage(damage)
 		return endpoint
 	return end
+
+func _laser_boss_damage(_laser_damage: float) -> float:
+	var total = 0.0
+	var count = 0
+	for id in weapon_data:
+		if id == "laser": continue
+		var power = float(weapon_data[id].damage)
+		if id in ["rocket","grenade"]: power *= get_explosive_damage_multiplier()
+		if id == "flamethrower": power *= get_flame_damage_multiplier()
+		total += power
+		count += 1
+	return total / maxf(1,count) * get_player_damage_multiplier() * player.temporary_damage_multiplier()
+
+func _start_air_raid() -> Node3D:
+	var raid = AirRaid.new()
+	add_child(raid)
+	raid.setup(self)
+	return raid
 
 func _fire_cone(start: Vector3, forward: Vector3, max_range: float, sin_half_angle: float, damage: float, shotgun: bool) -> void:
 	for z in get_enemies():
@@ -2005,7 +2026,7 @@ func _try_spawn_drop(pos: Vector3, kind: String) -> void:
 	if roll < weapon_chance:
 		_spawn_pickup(pos, "weapon", _random_weapon_drop())
 	elif roll < weapon_chance + item_chance:
-		var items = ["heal","speed","damage","armor","invuln","bomb","xp_burst"]
+		var items = ["heal","speed","damage","armor","invuln","bomb","xp_burst","air_raid"]
 		_spawn_pickup(pos, "item", items.pick_random())
 
 func _random_weapon_drop() -> String:
@@ -2014,7 +2035,7 @@ func _random_weapon_drop() -> String:
 		{"id":"lmg","w":13.0}, {"id":"grenade","w":9.0}, {"id":"flamethrower","w":10.0},
 		{"id":"sniper","w":8.0}, {"id":"rocket","w":6.0}
 	]
-	if round_number >= 21:
+	if round_number >= 1:
 		pool.append({"id":"laser","w":1.2 + min(float(round_number - 21) * 0.02, 1.8)})
 	var total = 0.0
 	for p in pool:
@@ -2065,11 +2086,12 @@ func collect_pickup(pickup: Node, body: Node) -> void:
 				for z in get_enemies():
 					if is_instance_valid(z):
 						z.take_damage(300.0)
+			"air_raid":
+				_start_air_raid()
 			"xp_burst":
 				_add_xp(80 + round_number * 2)
 			_:
 				player.store_item(pickup.payload)
-				if pickup.payload == "armor": player.add_energy_guard()
 				_save_checkpoint(round_number)
 	pickup.queue_free()
 
@@ -2233,7 +2255,7 @@ func _update_hud() -> void:
 		_update_weapon_buttons()
 		for id in item_buttons:
 			var count = int(player.item_inventory.get(id,0))
-			item_buttons[id].text = "%s ×%d" % [{"heal":"회복","speed":"속도","damage":"공격","armor":"갑옷","invuln":"무적"}[id],count]
+			item_buttons[id].text = "%s ×%d" % [{"heal":"구급약","speed":"속도","damage":"공격","armor":"에너지","invuln":"무적"}[id],count]
 			item_buttons[id].disabled = count <= 0
 	else:
 		hp_label.text = ""
@@ -2264,7 +2286,7 @@ func _update_weapon_buttons() -> void:
 
 func _clear_zombies_and_pickups() -> void:
 	_enemy_frame = -1
-	for group in ["boss_projectile", "ability_projectile", "shock_trap", "melee_effect"]:
+	for group in ["boss_projectile", "ability_projectile", "shock_trap", "melee_effect", "air_raid"]:
 		for projectile in get_tree().get_nodes_in_group(group):
 			projectile.queue_free()
 	for z in get_enemies():

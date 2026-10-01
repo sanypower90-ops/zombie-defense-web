@@ -10,6 +10,8 @@ const GRIPS_B = preload("res://assets/sprites/grips_b_v7.png")
 const MELEE_FX = preload("res://assets/sprites/melee_fx_v7.png")
 const PLAYER_V8 = preload("res://assets/sprites/player_v8.png")
 const ATTACKS_V8 = preload("res://assets/sprites/attacks_v8.png")
+const FULL_BODY_V10 = preload("res://assets/sprites/player_full_v10.png")
+const AIR_RAID_V10 = preload("res://assets/sprites/airraid_v10.png")
 const STICK_V8 = preload("res://assets/sprites/stick_v8.png")
 const GUN_IDS = ["pistol","shotgun","smg","rifle","lmg","grenade","flamethrower","sniper","rocket","laser"]
 const MELEE = preload("res://assets/sprites/player_melee_v6.png")
@@ -28,6 +30,7 @@ const PROJECTILE_FX = preload("res://assets/sprites/projectile_fx.png")
 const WEAPON_FX = preload("res://assets/sprites/weapon_fx.png")
 
 static var _atlas_cache: Dictionary = {}
+static var _body_v10_cache: Dictionary = {}
 static var _source_images: Dictionary = {}
 static var _regions: Dictionary = {}
 static var _walk_regions: Array = []
@@ -173,20 +176,44 @@ static func _isolate_character(source: Image) -> Image:
 static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: float, recoil: float, hurt: bool = false, weapon_id: String = "pistol", strike: int = 0) -> void:
 	if sprite == null:
 		return
-	var direction = player_direction(yaw)
-	if weapon_id in ["sword", "fist"]:
-		sprite.flip_h = false
-		var frame = int(floor(phase / TAU * 4.0))
-		sprite.texture = melee_player_v8(weapon_id,direction,recoil > .55,frame,motion > .05)
-		sprite.position.y = .67 + sin(phase*2)*.025*motion
-		return
-	sprite.flip_h = false
-	sprite.position.y = .67
-	# Shooting no longer replaces moving legs with a frozen standing pose.
-	var action = "walk" if motion > 0.05 else ("hit" if hurt else ("attack" if recoil > 0.08 else "idle"))
+	var forward = Vector3(-sin(yaw),0,-cos(yaw))
+	var direction16 = posmod(int(round(-atan2(forward.x,forward.z)/(PI/8.0))),16)
+	var direction = posmod(int(round(direction16/2.0)),8)
 	var frame = int(floor(phase / TAU * 4.0))
-	sprite.texture = armed_frame(direction,action,frame,weapon_id)
-	sprite.position.y = .67 + sin(phase*2) * .025 * motion
+	var moving = motion > .05
+	sprite.flip_h = false
+	var key = "joined-v10:%s:%d:%d:%s" % [weapon_id,direction16,posmod(frame,4) if moving else -1,recoil>.55]
+	if not _atlas_cache.has(key):
+		var old = melee_player_v8(weapon_id,direction,recoil>.55,0,false) if weapon_id in ["sword","fist"] else armed_frame(direction,"idle",0,weapon_id)
+		_atlas_cache[key] = ImageTexture.create_from_image(joined_player_v10(old.get_image(),direction16,frame if moving else -1))
+	sprite.texture = _atlas_cache[key]
+	sprite.position.y = .67 + sin(phase*2)*.015*motion
+
+static func joined_player_v10(upper: Image, direction: int, frame: int) -> Image:
+	if not _body_v10_cache.has(direction):
+		var body = _frame(FULL_BODY_V10,Rect2((direction%4)*FULL_BODY_V10.get_width()/4.0,(direction/4)*FULL_BODY_V10.get_height()/4.0,FULL_BODY_V10.get_width()/4.0,FULL_BODY_V10.get_height()/4.0)).get_image()
+		body = body.get_region(body.get_used_rect())
+		body.resize(maxi(1,int(body.get_width()*116.0/body.get_height())),116,Image.INTERPOLATE_LANCZOS)
+		_body_v10_cache[direction] = body
+	var source: Image = _body_v10_cache[direction]
+	var image = Image.create(240,144,false,Image.FORMAT_RGBA8)
+	image.fill(Color.TRANSPARENT)
+	var offset = Vector2i((240-source.get_width())/2,24)
+	# New connected hips back the join; upper and lower regions overlap by 14 pixels.
+	image.blit_rect(source,Rect2i(0,60,source.get_width(),22),offset+Vector2i(0,60))
+	var step = [0,2,0,-2][posmod(frame,4)] if frame >= 0 else 0
+	var split = source.get_width()/2
+	for side in range(2):
+		var left = 0 if side == 0 else split
+		var width = split if side == 0 else source.get_width()-split
+		var leg = source.get_region(Rect2i(left,82,width,34))
+		leg.resize(width,34+step*(1 if side == 0 else -1),Image.INTERPOLATE_LANCZOS)
+		image.blit_rect(leg,Rect2i(Vector2i.ZERO,leg.get_size()),offset+Vector2i(left,82))
+	image.blend_rect(upper,Rect2i(0,0,240,98),Vector2i.ZERO)
+	return image
+
+static func air_raid_texture(index: int) -> ImageTexture:
+	return _frame(AIR_RAID_V10,Rect2((index%2)*AIR_RAID_V10.get_width()/2.0,(index/2)*AIR_RAID_V10.get_height()/2.0,AIR_RAID_V10.get_width()/2.0,AIR_RAID_V10.get_height()/2.0))
 
 static func walking_melee(body: ImageTexture, direction: int, phase: float) -> ImageTexture:
 	var frame = int(floor(phase / TAU * 4))
@@ -360,7 +387,7 @@ static func make_pickup(kind: String, payload: String) -> Sprite3D:
 	var sprite = _sprite(0.011)
 	sprite.name = "PickupSprite"
 	sprite.position.y = 0.32
-	sprite.texture = _frame(ITEMS, _item_rect(kind, payload))
+	sprite.texture = air_raid_texture(2) if payload == "air_raid" else _frame(ITEMS, _item_rect(kind, payload))
 	return sprite
 
 static func make_weapon_icon(weapon_id: String) -> Sprite3D:

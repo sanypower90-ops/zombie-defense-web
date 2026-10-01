@@ -274,7 +274,7 @@ func _handle_fire() -> void:
 		return
 	var weapon_id = current_weapon_id()
 	var data: Dictionary = game.get_weapon_data(weapon_id)
-	var rate = float(data.get("fire_rate", 3.0)) * game.get_player_fire_rate_multiplier()
+	var rate = float(data.get("fire_rate", 3.0)) * (1.0 if weapon_id == "laser" else game.get_player_fire_rate_multiplier())
 	if rate <= 0.0:
 		return
 	if weapon_id == "pistol" and base_mag <= 0:
@@ -433,7 +433,7 @@ func apply_item(item_id: String) -> void:
 	var now = Time.get_ticks_msec() / 1000.0
 	match item_id:
 		"heal":
-			heal(30.0)
+			heal(5.0)
 		"speed":
 			speed_buff_until = max(speed_buff_until, now + 10.0)
 		"damage":
@@ -444,9 +444,9 @@ func apply_item(item_id: String) -> void:
 		"invuln":
 			invuln_until = max(invuln_until, now + 5.0)
 
-func add_energy_guard() -> void:
+func add_energy_guard(amount: float = 5.0) -> void:
 	energy_guard_max = maxf(60.0,max_hp*.6)
-	energy_guard = minf(energy_guard_max,energy_guard + 60.0)
+	energy_guard = minf(energy_guard_max,energy_guard + amount)
 
 func temporary_damage_multiplier() -> float:
 	return 1.35 if Time.get_ticks_msec() / 1000.0 < damage_buff_until else 1.0
