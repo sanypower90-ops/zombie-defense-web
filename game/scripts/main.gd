@@ -30,6 +30,8 @@ var menu_music: AudioStreamPlayer
 var gameplay_music: AudioStreamPlayer
 var boss_music: AudioStreamPlayer
 var home_background: TextureRect
+var home_backdrop: ColorRect
+var home_logo: TextureRect
 var flash_overlay: ColorRect
 var guard_label: Label
 var item_toolbar: HBoxContainer
@@ -414,13 +416,24 @@ func _build_ui() -> void:
 	var hud = Control.new()
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	canvas.add_child(hud)
+	home_backdrop = ColorRect.new()
+	home_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	home_backdrop.color = Color("071325")
+	home_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(home_backdrop)
 	home_background = TextureRect.new()
 	home_background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	home_background.texture = preload("res://assets/sprites/home_v8.png")
+	home_background.texture = preload("res://assets/sprites/home_arcade_v9.png")
 	home_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	home_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	home_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	home_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(home_background)
+	home_logo = TextureRect.new()
+	home_logo.texture = preload("res://assets/sprites/home_logo_v9.png")
+	home_logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	home_logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	home_logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	home_background.add_child(home_logo)
 	flash_overlay = ColorRect.new()
 	flash_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	flash_overlay.color = Color(1,1,1,0)
@@ -510,18 +523,11 @@ func _build_ui() -> void:
 
 	_build_touch_controls(hud)
 
-	menu_panel = _make_center_panel(hud, Vector2(500, 490))
+	menu_panel = _make_center_panel(hud, Vector2(500, 450))
 	menu_panel.add_theme_font_override("font",preload("res://assets/fonts/ChosunCentennial.otf"))
 	var menu_box = VBoxContainer.new()
 	menu_box.add_theme_constant_override("separation", 12)
 	menu_panel.add_child(menu_box)
-	var title = Label.new()
-	title.text = "좀비 디펜스 100"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 30)
-	title.add_theme_color_override("font_color", Color(1.0, 0.65, 0.95))
-	title.add_theme_color_override("font_shadow_color", Color(0.89, 0.31, 0.87, 0.95))
-	menu_box.add_child(title)
 	var subtitle = Label.new()
 	subtitle.text = "100라운드 · 일반 20초 생존 / 보스 처치"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1061,6 +1067,16 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 		panel_scale = max(panel_scale, 0.1)
 		panel.scale = Vector2.ONE * panel_scale
 		panel.position = (view_size - panel.size * panel_scale) * 0.5
+	# Fit the entire portrait art and reserve a separate top area for the logo.
+	var logo_height = minf(view_size.y*.25,view_size.x*.60)
+	home_logo.position = Vector2(view_size.x*.04,8.0)
+	home_logo.size = Vector2(view_size.x*.92,logo_height)
+	var menu_area_top = logo_height + 20.0
+	var menu_area_height = view_size.y - menu_area_top - 16.0
+	var home_scale = minf(menu_panel.scale.x,menu_area_height/menu_panel.size.y)
+	menu_panel.scale = Vector2.ONE * home_scale
+	menu_panel.position = Vector2((view_size.x-menu_panel.size.x*home_scale)*.5,menu_area_top+(menu_area_height-menu_panel.size.y*home_scale)*.5)
+	hud_top_left.visible = game_active
 	if touch_left_zone == null:
 		return
 	var hit_size = 410.0 if mobile and portrait else (340.0 if mobile else 280.0)
@@ -1157,6 +1173,7 @@ func _show_main_menu() -> void:
 	_clear_dynamic_entities()
 	menu_panel.show()
 	home_background.show()
+	home_backdrop.show()
 	if player != null and not account_service.logged_in(): player.item_inventory.clear()
 	result_panel.hide()
 	nickname_panel.hide()
@@ -1175,6 +1192,7 @@ func start_new_game() -> void:
 	_clear_dynamic_entities()
 	menu_panel.hide()
 	home_background.hide()
+	home_backdrop.hide()
 	item_toolbar.show()
 	result_panel.hide()
 	nickname_panel.hide()
