@@ -5,6 +5,8 @@ const FLIGHT = preload("res://assets/sprites/flight_v5.png")
 const ZOMBIES_V5 = preload("res://assets/sprites/zombies_v5.png")
 const HEAVY_V5 = preload("res://assets/sprites/heavy_v5.png")
 const PROPS_V5 = preload("res://assets/sprites/props_v5.png")
+const MELEE = preload("res://assets/sprites/player_melee_v6.png")
+const MELEE_BACK = preload("res://assets/sprites/player_melee_back_v6.png")
 const PLAYER = preload("res://assets/sprites/player_directional_v2.png")
 const PLAYER_WALK = preload("res://assets/sprites/player_walk_v3.png")
 const ATTACKS = preload("res://assets/sprites/ability_attacks_v2.png")
@@ -28,7 +30,7 @@ static func _frame(source: Texture2D, rect: Rect2, character: bool = false) -> I
 	if not _atlas_cache.has(key):
 		if not _source_images.has(source.resource_path):
 			var original = source.get_image()
-			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5]:
+			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5, MELEE, MELEE_BACK]:
 				original.convert(Image.FORMAT_RGBA8)
 				var pixels = original.get_data()
 				# Barely visible alpha noise must not expand a frame's bounds.
@@ -158,14 +160,41 @@ static func _isolate_character(source: Image) -> Image:
 			if not edge: image.set_pixel(x, y, Color.TRANSPARENT)
 	return image
 
-static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: float, recoil: float, hurt: bool = false) -> void:
+static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: float, recoil: float, hurt: bool = false, weapon_id: String = "pistol", strike: int = 0) -> void:
 	if sprite == null:
 		return
 	var direction = player_direction(yaw)
+	if weapon_id in ["sword", "fist"]:
+		sprite.flip_h = direction in [5, 6, 7]
+		var back = direction in [3, 4, 5]
+		sprite.flip_h = direction == 3 if back else direction in [5,6,7]
+		var side = direction != (4 if back else 0)
+		var row = (0 if weapon_id == "sword" else 2) + (1 if side else 0)
+		var frame = clampi(int((1.0-recoil) * 4.0),1,3) if recoil > .05 else 0
+		if weapon_id == "fist" and recoil > .05: frame = 1 if strike % 2 == 0 else 3
+		sprite.texture = melee_frame(back, row, frame)
+		sprite.position.y = .67 + sin(phase * 2) * .035 * motion
+		return
+	sprite.flip_h = false
+	sprite.position.y = .67
 	# Shooting no longer replaces moving legs with a frozen standing pose.
 	var action = "walk" if motion > 0.05 else ("hit" if hurt else ("attack" if recoil > 0.08 else "idle"))
 	var frame = int(floor(phase / TAU * 4.0))
 	sprite.texture = _player_frame(direction, action, frame)
+
+static func melee_frame(back: bool, row: int, frame: int) -> ImageTexture:
+	var source = MELEE_BACK if back else MELEE
+	var key = "melee-v6:%s:%d:%d" % [back,row,frame]
+	if not _atlas_cache.has(key):
+		var image = _frame(source, _grid_region(source,row*4+frame)).get_image()
+		image = image.get_region(image.get_used_rect())
+		var factor = minf(150.0/image.get_width(),114.0/image.get_height())
+		image.resize(maxi(1,int(image.get_width()*factor)),maxi(1,int(image.get_height()*factor)),Image.INTERPOLATE_LANCZOS)
+		var canvas = Image.create(160,144,false,Image.FORMAT_RGBA8)
+		canvas.fill(Color.TRANSPARENT)
+		canvas.blit_rect(image,Rect2i(Vector2i.ZERO,image.get_size()),Vector2i((160-image.get_width())/2,140-image.get_height()))
+		_atlas_cache[key] = ImageTexture.create_from_image(canvas)
+	return _atlas_cache[key]
 
 static func make_zombie(kind: String) -> Sprite3D:
 	var sprite = _sprite(0.024)
@@ -175,6 +204,7 @@ static func make_zombie(kind: String) -> Sprite3D:
 	if kind == "runner": sprite.modulate = Color(1.0, 0.77, 0.77)
 	if kind == "screamer": sprite.modulate = Color(0.93, 0.69, 1.0)
 	if kind == "regenerator": sprite.modulate = Color(0.68, 1.0, 0.79)
+	if kind not in ["boss", "final_boss"]: sprite.scale *= .8
 	sprite.texture = _zombie_frame(kind, 0, "idle", 0)
 	return sprite
 
@@ -278,7 +308,7 @@ static func isolated_grid_texture(source: Texture2D, index: int) -> ImageTexture
 	return _atlas_cache[key]
 
 static func make_guard_sprite(id: String, diameter: float) -> Sprite3D:
-	var texture = isolated_grid_texture(FLIGHT, {"guard_orbs":10, "guard_blades":11, "ring":12, "spark":13}.get(id, 10))
+	var texture = isolated_grid_texture(FLIGHT, {"guard_orbs":10, "guard_blades":11, "auto_blade":11, "ring":12, "spark":13}.get(id, 10))
 	var sprite = _sprite(diameter / maxf(texture.get_width(), texture.get_height()))
 	sprite.texture = texture
 	sprite.position = Vector3.ZERO
@@ -325,7 +355,7 @@ static func make_ability_sprite(id: String, diameter: float = 1.4) -> Sprite3D:
 
 static func attack_texture(id: String, impact: bool = false) -> ImageTexture:
 	if id != "clone":
-		var cells = {"auto_orbit":5, "auto_shock":6, "auto_flame":7, "auto_blade":8, "auto_missile":9} if impact else {"auto_orbit":0, "auto_shock":1, "auto_flame":2, "auto_blade":3, "auto_missile":4}
+		var cells = {"auto_orbit":9, "auto_shock":6, "auto_flame":7, "auto_blade":8, "auto_missile":9} if impact else {"auto_orbit":4, "auto_shock":1, "auto_flame":2, "auto_blade":3, "auto_missile":4}
 		return isolated_grid_texture(FLIGHT, cells.get(id, 0))
 	var cells = {"auto_orbit": 7, "auto_shock": 6, "auto_flame": 5, "auto_blade": 8, "auto_missile": 9, "clone": 7} if impact else {"auto_orbit": 0, "auto_shock": 1, "auto_flame": 5, "auto_blade": 2, "auto_missile": 3, "clone": 10}
 	var index: int = cells.get(id, 0)

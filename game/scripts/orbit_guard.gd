@@ -1,7 +1,7 @@
 extends Node3D
 
 const Visuals = preload("res://scripts/sprite_visuals.gd")
-const IDS = ["guard_orbs", "guard_blades"]
+const IDS = ["guard_orbs", "guard_blades", "auto_blade"]
 const RADIUS = 3.0
 const ACTIVE_SECONDS = 5.0
 const REST_SECONDS = 2.0
@@ -66,7 +66,7 @@ func position_units() -> void:
 		unit.visible = active
 		var angle = elapsed * 2.1 + TAU * index / units.size()
 		unit.global_position = global_position + Vector3(cos(angle) * RADIUS, 0.75, sin(angle) * RADIUS)
-		if unit.get_meta("guard_id") == "guard_blades":
+		if unit.get_meta("guard_id") in ["guard_blades", "auto_blade"]:
 			Visuals.align_fx(unit, game.camera, Vector3(cos(angle), 0, sin(angle)))
 
 func blocks_segment(start: Vector3, finish: Vector3) -> bool:

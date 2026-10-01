@@ -32,7 +32,7 @@ const COLORS := {
 }
 
 var active_auras: Dictionary = {}
-const AUTO_IDS := ["auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile"]
+const AUTO_IDS := ["auto_orbit", "auto_shock", "auto_flame", "auto_missile"]
 var companions: Dictionary = {}
 var companion_phase := 0.0
 
@@ -47,10 +47,11 @@ func show_upgrade(id: String, level: int) -> void:
 		ensure_companion(id, level)
 
 func ensure_companion(id: String, level: int) -> void:
+	if id not in AUTO_IDS: return
 	if companions.has(id) and is_instance_valid(companions[id]):
 		companions[id].set_meta("level", level)
 		return
-	var sprite = Visuals.make_combat_sprite(AUTO_IDS.find(id), 1.25)
+	var sprite = Visuals.make_combat_sprite({"auto_orbit":0,"auto_shock":1,"auto_flame":2,"auto_missile":4}[id], 1.25)
 	sprite.name = "Companion_" + id
 	sprite.set_meta("level", level)
 	add_child(sprite)

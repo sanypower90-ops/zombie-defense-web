@@ -17,6 +17,7 @@ var next_attack_time = 0.0
 var next_special_time = 0.0
 var regen_per_second = 0.0
 var dead = false
+var shock_left := 0.0
 var visual_root: Node3D
 var sprite_visual: Sprite3D
 var walk_phase = 0.0
@@ -121,6 +122,9 @@ func _build_visual() -> void:
 		scale_factor = 1.45 if kind == "brute" else 2.15
 		radius *= scale_factor
 		height *= scale_factor
+	if kind not in ["boss", "final_boss"]:
+		radius *= .8
+		height *= .8
 	capsule_shape.radius = radius
 	capsule_shape.height = height
 	shape_node.shape = capsule_shape
@@ -152,6 +156,10 @@ func _color_for_kind() -> Color:
 
 func _physics_process(delta: float) -> void:
 	if dead or game == null or not game.can_world_update():
+		velocity = Vector3.ZERO
+		return
+	if shock_left > 0.0:
+		shock_left = maxf(0.0, shock_left - delta)
 		velocity = Vector3.ZERO
 		return
 	var target = game.player

@@ -23,7 +23,7 @@ func _run() -> void:
 	game.add_child(enemy)
 	enemy.add_to_group("zombie")
 	enemy.position = Vector3(4, 0.85, 0)
-	for id in ["auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile", "clone"]:
+	for id in ["auto_orbit", "auto_flame", "auto_missile", "clone"]:
 		enemy.hp = 100.0
 		var shot = game._launch_ability_attack(id, Vector3(0, 1.5, 0), enemy, 15.0, 1.25 if id == "auto_missile" else 0.0)
 		shot.advance(0.02)
@@ -62,5 +62,5 @@ func _run() -> void:
 	enemy.queue_free()
 	game.queue_free()
 	await process_frame
-	print("ABILITY_COMBAT_PASS: six moving attacks, impact positions, pause and cover")
+	print("ABILITY_COMBAT_PASS: four moving attacks, impact positions, pause and cover")
 	quit(0)

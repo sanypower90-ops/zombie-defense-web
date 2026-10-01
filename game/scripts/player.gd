@@ -46,6 +46,7 @@ var visual_weapon_id = ""
 var weapon_name_label: Label3D
 var walk_phase = 0.0
 var recoil_left = 0.0
+var melee_strike := 0
 
 func setup(p_game: Node) -> void:
 	game = p_game
@@ -88,7 +89,7 @@ func _physics_process(delta: float) -> void:
 	if not game.can_player_act():
 		velocity = Vector3.ZERO
 		VisualFactory.animate_player(visual_root, walk_phase, 0.0, 0.0)
-		SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, 0.0, 0.0)
+		SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, 0.0, recoil_left, false, current_weapon_id(), melee_strike)
 		return
 	_update_reload(delta)
 	_handle_selection_keys()
@@ -104,9 +105,9 @@ func _physics_process(delta: float) -> void:
 	var motion = clamp(velocity.length() / max(base_move_speed, 0.01), 0.0, 1.0)
 	if motion > 0.05:
 		walk_phase += velocity.length() * delta * TAU / 4.4
-	recoil_left = max(recoil_left - delta * 6.0, 0.0)
+	recoil_left = max(recoil_left - delta * (4.5 if weapon_id == "sword" else 6.0), 0.0)
 	VisualFactory.animate_player(visual_root, walk_phase, motion, recoil_left)
-	SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, motion, recoil_left)
+	SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, motion, recoil_left, false, weapon_id, melee_strike)
 
 func _input(event: InputEvent) -> void:
 	# Touch release is processed even while paused so a finger never remains stuck.
@@ -283,6 +284,7 @@ func _handle_fire() -> void:
 		game.play_weapon_sfx(weapon_id)
 		next_fire_time = now + 1.0 / rate
 		recoil_left = 1.0
+		melee_strike += 1
 		_consume_current_ammo(1)
 
 func begin_reload() -> void:

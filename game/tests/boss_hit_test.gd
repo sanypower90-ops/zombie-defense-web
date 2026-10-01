@@ -47,7 +47,7 @@ func _run() -> void:
 			fail("Missing or duplicate sound: " + id)
 			return
 		sounds[hash(sound.data)] = true
-	for id in ["auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile"]:
+	for id in ["auto_orbit", "auto_shock", "auto_flame", "auto_missile"]:
 		game._apply_upgrade(id)
 		var follower = game.ability_effects.companions.get(id)
 		if follower == null or follower.texture != game.ability_effects.Visuals.companion_texture(id):

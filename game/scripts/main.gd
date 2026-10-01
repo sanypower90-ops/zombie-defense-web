@@ -9,6 +9,7 @@ const AccountServiceScript = preload("res://scripts/account_service.gd")
 const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
+const ShockTrap = preload("res://scripts/shock_trap.gd")
 const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
 const OrbitGuard = preload("res://scripts/orbit_guard.gd")
 const BossProjectile = preload("res://scripts/boss_projectile.gd")
@@ -67,6 +68,7 @@ var xp = 0
 var xp_needed = 80
 var pending_levelups = 0
 var auto_attack_elapsed := 0.0
+var ability_clocks: Dictionary = {}
 var clone_visuals: Array[Node3D] = []
 var upgrades = {
 	"damage": 0,
@@ -83,8 +85,8 @@ var upgrades = {
 
 var weapon_data = {
 	"pistol": {"name":"기본 권총", "damage":20.0, "fire_rate":3.0, "range":24.0, "ammo_max":-1},
-	"sword": {"name":"장검", "damage":6.0, "fire_rate":2.0, "range":5.5, "ammo_max":-1},
-	"fist": {"name":"짧은 주먹", "damage":14.0, "fire_rate":3.4, "range":1.8, "ammo_max":-1},
+	"sword": {"name":"장검", "damage":18.0, "fire_rate":2.0, "range":5.5, "ammo_max":-1},
+	"fist": {"name":"짧은 주먹", "damage":22.0, "fire_rate":7.0, "range":1.8, "ammo_max":-1},
 	"shotgun": {"name":"샷건", "damage":30.0, "fire_rate":1.15, "range":11.0, "ammo_max":30},
 	"smg": {"name":"기관단총", "damage":16.0, "fire_rate":10.0, "range":20.0, "ammo_max":180},
 	"rifle": {"name":"돌격소총", "damage":30.0, "fire_rate":6.0, "range":26.0, "ammo_max":120},
@@ -1105,6 +1107,7 @@ func start_new_game() -> void:
 	xp = 0
 	xp_needed = 80
 	pending_levelups = 0
+	ability_clocks.clear()
 	upgrades = {
 		"damage":0, "fire_rate":0, "move_speed":0, "vitality":0,
 		"pickup":0, "flame":0, "explosive":0, "energy":0,
@@ -1336,7 +1339,7 @@ func fire_weapon(shooter: Node3D, weapon_id: String) -> bool:
 	match weapon_id:
 		"sword":
 			_fire_cone(start, forward, max_range, 0.90, damage, false)
-			_make_burst(start + forward * 2.4, Color(0.70, 0.92, 1.0), 1.6)
+			_show_melee_slash(start, forward, max_range)
 		"fist":
 			_fire_cone(start, forward, max_range, 0.26, damage, false)
 			_make_burst(start + forward, Color(1.0, 0.72, 0.30), 0.55)
@@ -1399,32 +1402,55 @@ func find_nearest_zombie(origin: Vector3, max_distance: float) -> Node3D:
 			best_distance = distance
 	return nearest
 
+func _show_melee_slash(start: Vector3, forward: Vector3, reach: float) -> void:
+	var slash = SpriteVisuals.make_attack_sprite("auto_blade", true, reach * 1.2)
+	add_child(slash)
+	slash.global_position = start + forward * reach * .45
+	SpriteVisuals.align_fx(slash, camera, forward)
+	var tween = create_tween()
+	tween.tween_property(slash, "rotation:z", slash.rotation.z + PI * .8, .18)
+	tween.parallel().tween_property(slash, "modulate:a", 0.0, .23)
+	tween.tween_callback(slash.queue_free)
+
 func get_auto_attack_range(id: String, lv: int) -> float:
+	if id == "auto_blade": return 3.0
 	return 2.0 * (5.0 + lv * 0.9 + (6.0 if id == "auto_missile" else 0.0))
 
 func _update_auto_attacks(delta: float) -> void:
-	auto_attack_elapsed += delta
-	if auto_attack_elapsed < 0.52 or player == null:
-		return
-	auto_attack_elapsed = 0.0
+	if player == null: return
 	var origin: Vector3 = player.global_position
-	for id in ["auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile"]:
+	for id in ["auto_orbit", "auto_shock", "auto_flame", "auto_missile"]:
 		var lv = int(upgrades.get(id, 0))
-		if lv <= 0:
-			continue
-		var target = find_nearest_zombie(origin, get_auto_attack_range(id, lv))
-		if target == null:
-			continue
+		if lv <= 0: continue
+		ability_clocks[id] = float(ability_clocks.get(id, 99.0)) + delta
+		var interval = {"auto_orbit":3.0, "auto_shock":3.2, "auto_flame":1.4, "auto_missile":2.0}[id]
+		if ability_clocks[id] < interval: continue
+		ability_clocks[id] = 0.0
 		var damage = (9.0 + 6.0 * lv) * get_player_damage_multiplier()
-		var radius = 1.0 + lv * 0.25 if id == "auto_missile" else 0.0
-		var launch_origin: Vector3 = ability_effects.companion_origin(id) if ability_effects != null else origin + Vector3.UP * 0.9
-		_launch_ability_attack(id, launch_origin, target, damage, radius)
-	for clone in clone_visuals:
-		if not is_instance_valid(clone):
+		if id == "auto_shock":
+			var trap = ShockTrap.new()
+			add_child(trap)
+			var angle = randf() * TAU
+			trap.setup(self, origin + Vector3(cos(angle), 0, sin(angle)) * randf_range(1.5, 3.5), lv, damage)
 			continue
+		var launch_origin: Vector3 = ability_effects.companion_origin(id) if ability_effects != null else origin + Vector3.UP * .9
+		if id == "auto_orbit":
+			var candidates = get_tree().get_nodes_in_group("zombie").filter(func(z): return is_instance_valid(z) and not z.dead and z.global_position.distance_to(origin) <= get_auto_attack_range(id, lv))
+			candidates.shuffle()
+			for i in range(2 + lv if not candidates.is_empty() else 0):
+				_launch_ability_attack(id, launch_origin, candidates[i % candidates.size()], damage, 2.0 + .2 * lv)
+		else:
+			var target = find_nearest_zombie(origin, get_auto_attack_range(id, lv))
+			if target != null:
+				_launch_ability_attack(id, launch_origin, target, damage * (2.8 if id == "auto_flame" else 1.0), 2.5 + .3 * lv if id == "auto_missile" else 0.0)
+	auto_attack_elapsed += delta
+	if auto_attack_elapsed < .52: return
+	auto_attack_elapsed = 0.0
+	for clone in clone_visuals:
+		if not is_instance_valid(clone): continue
 		var enemy = find_nearest_zombie(clone.global_position, 16.0)
 		if enemy != null:
-			_launch_ability_attack("clone", clone.global_position + Vector3.UP * 0.6, enemy, 6.0 * get_player_damage_multiplier(), 0.0)
+			_launch_ability_attack("clone", clone.global_position + Vector3.UP * .6, enemy, 6.0 * get_player_damage_multiplier(), 0.0)
 
 func _launch_ability_attack(id: String, start: Vector3, enemy: Node3D, damage: float, radius: float) -> Node3D:
 	var projectile = AbilityProjectile.new()
@@ -1435,7 +1461,7 @@ func _launch_ability_attack(id: String, start: Vector3, enemy: Node3D, damage: f
 func resolve_ability_impact(id: String, point: Vector3, enemy: Node3D, damage: float, radius: float, hit_target: bool) -> void:
 	# Deal damage when the illustration reaches its target, using the same
 	# world position for the visible impact and any area damage.
-	if id == "auto_missile":
+	if id in ["auto_missile", "auto_orbit"]:
 		for z in get_tree().get_nodes_in_group("zombie"):
 			if is_instance_valid(z) and not z.dead:
 				var dist: float = z.global_position.distance_to(point)
@@ -1727,10 +1753,10 @@ func _upgrade_description(id: String, next_level: int) -> String:
 	match id:
 		"guard_orbs", "guard_blades": return "회전 개체 +1 · 5초 공격/방어, 2초 대기 · 최대 5개 · 활성 중 피해 25% 감소"
 		"clone": return "분신 +1명 (플레이어 포함 최대 3명)"
-		"auto_orbit": return "주변 적 자동 추적 사격 · 최대 5레벨"
-		"auto_shock": return "적에게 날아가는 전기탄 · 최대 5레벨"
-		"auto_flame": return "적을 추적하는 화염탄 · 최대 5레벨"
-		"auto_blade": return "적에게 회전 칼날 발사 · 최대 5레벨"
+		"auto_orbit": return "3초마다 주변 랜덤 적에게 스플래시 미사일 난사"
+		"auto_shock": return "3.2초마다 6초 유지 전기 트랩 설치 · 감전"
+		"auto_flame": return "단일 적 추적 고대미지 화염탄"
+		"auto_blade": return "플레이어 주위 회전 칼날 +1 · 5초 작동 / 2초 휴식"
 		"auto_missile": return "적을 찾아 폭발하는 미사일 · 최대 5레벨"
 		"damage": return "모든 무기 피해 증가" if not evolved else "오버차지: 큰 피해 증가 + 돌격소총 관통"
 		"fire_rate": return "모든 무기 연사속도 증가" if not evolved else "오버드라이브: 추가 연사 증가"
@@ -1767,7 +1793,7 @@ func _apply_upgrade(id: String) -> void:
 	var lv = int(upgrades[id])
 	if id.begins_with("auto_") and ability_effects != null:
 		ability_effects.ensure_companion(id, lv)
-	if id.begins_with("guard_") and orbit_guard != null:
+	if (id.begins_with("guard_") or id == "auto_blade") and orbit_guard != null:
 		orbit_guard.refresh()
 	if id == "vitality" and player != null:
 		if lv < 4:
@@ -2112,7 +2138,7 @@ func _update_weapon_buttons() -> void:
 	touch_weapon_buttons[3].disabled = player.selected_slot != 0 or player.base_weapon_id != "pistol" or player.reloading or player.base_mag >= player.base_mag_max
 
 func _clear_zombies_and_pickups() -> void:
-	for group in ["boss_projectile", "ability_projectile"]:
+	for group in ["boss_projectile", "ability_projectile", "shock_trap"]:
 		for projectile in get_tree().get_nodes_in_group(group):
 			projectile.queue_free()
 	for z in get_tree().get_nodes_in_group("zombie"):

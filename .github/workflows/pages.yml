@@ -44,6 +44,8 @@ jobs:
         run: godot --headless --path game --script res://tests/boss_hit_test.gd
       - name: Check orbit guards, extended range and menus
         run: godot --headless --path game --script res://tests/orbit_range_test.gd
+      - name: Check revised ability roles and melee animation
+        run: godot --headless --path game --script res://tests/ability_roles_test.gd
       - name: Export Web game
         run: |
           mkdir -p build/web

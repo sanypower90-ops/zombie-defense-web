@@ -214,12 +214,12 @@ func _run() -> void:
 		quit(1)
 		return
 	game.player.select_base_weapon("sword")
-	if game.player.current_weapon_id() != "sword" or game.get_weapon_data("sword")["damage"] != game.get_weapon_data("pistol")["damage"] * 0.3:
+	if game.player.current_weapon_id() != "sword" or game.get_weapon_data("sword")["range"] <= game.get_weapon_data("fist")["range"]:
 		push_error("The base sword has the wrong damage or cannot be selected")
 		quit(1)
 		return
 	game.player.select_base_weapon("fist")
-	if game.get_weapon_data("fist")["damage"] != game.get_weapon_data("pistol")["damage"] * 0.7:
+	if game.get_weapon_data("fist")["damage"] <= game.get_weapon_data("sword")["damage"] or game.get_weapon_data("fist")["fire_rate"] <= game.get_weapon_data("sword")["fire_rate"]:
 		push_error("The base fist damage is wrong")
 		quit(1)
 		return
