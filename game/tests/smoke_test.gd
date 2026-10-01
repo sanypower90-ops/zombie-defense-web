@@ -52,6 +52,10 @@ func _run() -> void:
 		push_error("Joystick visual is not 70 percent smaller")
 		quit(1)
 		return
+	if game.hud_top_left.scale.x > 2.21 or game.hud_top_left.size.y * game.hud_top_left.scale.y > 420.0 or game.timer_label.visible or game.xp_label.visible or game.player.has_node("WeaponIcon"):
+		push_error("Mobile HUD is oversized or floating weapon-hand icon remains")
+		quit(1)
+		return
 	game._layout_ui(Vector2(1280, 720), true)
 	if game.menu_panel.position.y < 0.0 or game.touch_hit_zone.position.y < 300.0:
 		push_error("Landscape mobile UI is outside the screen")

@@ -36,6 +36,8 @@ jobs:
         run: godot --headless --path game --script res://tests/smoke_test.gd
       - name: Check isolated sprite textures and facing
         run: godot --headless --path game --script res://tests/sprite_visuals_test.gd
+      - name: Check illustrated abilities and reference effects
+        run: godot --headless --path game --script res://tests/ability_effects_test.gd
       - name: Export Web game
         run: |
           mkdir -p build/web

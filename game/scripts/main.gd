@@ -104,6 +104,7 @@ var menu_panel: PanelContainer
 var rank_submit_button: Button
 var upgrade_panel: PanelContainer
 var upgrade_buttons: Array[Button] = []
+var xp_bar: ProgressBar
 var result_panel: PanelContainer
 var result_label: Label
 var nickname_panel: PanelContainer
@@ -389,6 +390,25 @@ func _build_ui() -> void:
 		label.add_theme_color_override("font_color", Color(0.83, 0.94, 1.0))
 		label.add_theme_color_override("font_shadow_color", Color(0.66, 0.24, 0.84, 0.85))
 		hud_top_left.add_child(label)
+	var bold_font = FontVariation.new()
+	bold_font.base_font = preload("res://assets/fonts/NotoSansKR.ttf")
+	bold_font.variation_embolden = 0.8
+	for label in [round_label, hp_label]:
+		label.add_theme_font_override("font", bold_font)
+	for label in [round_label, timer_label, score_label, hp_label, xp_label, weapon_label]:
+		label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+		label.add_theme_constant_override("shadow_offset_x", 1)
+		label.add_theme_constant_override("shadow_offset_y", 1)
+	timer_label.hide()
+	xp_label.hide()
+	xp_bar = ProgressBar.new()
+	xp_bar.show_percentage = false
+	xp_bar.custom_minimum_size = Vector2(190, 5)
+	xp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var xp_fill = StyleBoxFlat.new()
+	xp_fill.bg_color = Color(0.22, 0.78, 0.92)
+	xp_bar.add_theme_stylebox_override("fill", xp_fill)
+	hud_top_left.add_child(xp_bar)
 	save_label.add_theme_font_size_override("font_size", 16)
 	hud_top_left.add_child(save_label)
 
@@ -545,7 +565,11 @@ func _build_ui() -> void:
 	upgrade_box.add_child(upgrade_title)
 	for i in range(3):
 		var b = Button.new()
-		b.custom_minimum_size = Vector2(0, 66)
+		b.custom_minimum_size = Vector2(0, 80)
+		b.expand_icon = true
+		b.add_theme_constant_override("icon_max_width", 64)
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.pressed.connect(_on_upgrade_selected.bind(i))
 		upgrade_box.add_child(b)
 		upgrade_buttons.append(b)
@@ -852,7 +876,13 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 		return
 	var portrait = view_size.y > view_size.x * 1.05
 	_set_responsive_fonts(menu_panel.get_parent(), 25 if mobile and portrait else (21 if mobile else 16))
-	var top_scale = 2.8 if mobile and portrait else (1.3 if mobile else 1.0)
+	var top_scale = 2.2 if mobile and portrait else (1.1 if mobile else 1.0)
+	for label in [round_label, hp_label]:
+		label.add_theme_font_size_override("font_size", 21 if mobile else 20)
+	for label in [score_label, weapon_label]:
+		label.add_theme_font_size_override("font_size", 16)
+	save_label.visible = not game_active
+	xp_bar.visible = game_active
 	hud_top_left.scale = Vector2.ONE * top_scale
 	hud_top_left.position = Vector2(18, 16)
 	var menu_button_scale = 1.7 if mobile and portrait else (1.15 if mobile else 1.0)
@@ -1297,7 +1327,7 @@ func _update_auto_attacks(delta: float) -> void:
 			"auto_orbit":
 				_make_tracer(origin + Vector3.UP * 1.3, hit, Color(0.3, 0.85, 1.0), 45.0, 0.09)
 			"auto_shock":
-				_make_beam(origin + Vector3.UP, hit, Color(0.4, 0.4, 1.0), 0.16, 0.12)
+				_make_beam(origin + Vector3.UP, hit, Color(1.0, 0.93, 0.19), 0.16, 0.12)
 			"auto_flame":
 				_make_burst(hit, Color(1.0, 0.32, 0.03), 1.1 + lv * 0.1)
 			"auto_blade":
@@ -1409,6 +1439,10 @@ func _launch_explosive(start: Vector3, end: Vector3, color: Color, radius: float
 	projectile.material_override = mat
 	add_child(projectile)
 	projectile.global_position = start
+	var projectile_fx = SpriteVisuals.make_fx("rocket" if color.r > 0.99 else "grenade", 1.2)
+	projectile.add_child(projectile_fx)
+	SpriteVisuals.align_fx(projectile_fx, camera, end - start)
+	projectile.transparency = 1.0
 	var duration = clamp(start.distance_to(end) / max(speed, 1.0), 0.18, 0.70)
 	var tween = create_tween()
 	tween.tween_property(projectile, "global_position", end, duration)
@@ -1423,6 +1457,7 @@ func _make_tracer(start: Vector3, end: Vector3, color: Color, speed: float, thic
 	var distance = start.distance_to(end)
 	if distance <= 0.01:
 		return
+	_play_reference_impact(start, "muzzle", 0.65)
 	var tracer = MeshInstance3D.new()
 	var box = BoxMesh.new()
 	box.size = Vector3(thickness, thickness, 1.20)
@@ -1436,57 +1471,56 @@ func _make_tracer(start: Vector3, end: Vector3, color: Color, speed: float, thic
 	add_child(tracer)
 	tracer.global_position = start
 	tracer.look_at(end, Vector3.UP)
+	var bullet = SpriteVisuals.make_fx("bullet", 0.8)
+	add_child(bullet)
+	bullet.global_position = start
+	SpriteVisuals.align_fx(bullet, camera, end - start)
+	var bullet_tween = create_tween()
+	bullet_tween.tween_property(bullet, "global_position", end, clampf(distance / maxf(speed, 1.0), 0.16, 0.48))
+	bullet_tween.tween_callback(bullet.queue_free)
 	var duration = clamp(distance / max(speed, 1.0), 0.16, 0.48)
 	var tween = create_tween()
 	tween.tween_property(tracer, "global_position", end, duration)
 	tween.tween_interval(0.06)
 	tween.tween_callback(tracer.queue_free)
 
+func _play_reference_impact(pos: Vector3, kind: String, diameter: float) -> void:
+	var sprite = SpriteVisuals.make_fx(kind, diameter)
+	add_child(sprite)
+	sprite.global_position = pos
+	var tween = create_tween()
+	for frame in range(4):
+		tween.tween_callback(func():
+			if is_instance_valid(sprite): sprite.texture = SpriteVisuals.fx_texture(kind, frame))
+		tween.tween_interval(0.06)
+	tween.tween_property(sprite, "modulate:a", 0.0, 0.12)
+	tween.tween_callback(sprite.queue_free)
+
+func _directional_fx(start: Vector3, end: Vector3, kind: String, breadth: float, lifetime: float) -> Sprite3D:
+	var sprite = SpriteVisuals.make_fx(kind)
+	add_child(sprite)
+	sprite.global_position = (start + end) * 0.5
+	SpriteVisuals.align_fx(sprite, camera, end - start)
+	var local_delta = camera.global_basis.inverse() * (end - start)
+	var projected_length = Vector2(local_delta.x, local_delta.y).length()
+	sprite.scale.x = projected_length / (sprite.texture.get_width() * sprite.pixel_size)
+	sprite.scale.y = breadth / (sprite.texture.get_height() * sprite.pixel_size)
+	var tween = create_tween()
+	tween.tween_property(sprite, "modulate:a", 0.0, lifetime)
+	tween.tween_callback(sprite.queue_free)
+	return sprite
+
 func _make_beam(start: Vector3, end: Vector3, color: Color, width: float, lifetime: float = 0.16) -> void:
-	var length = start.distance_to(end)
-	if length <= 0.01:
-		return
-	var beam = MeshInstance3D.new()
-	var box = BoxMesh.new()
-	box.size = Vector3(max(width, 0.035), max(width, 0.035), length)
-	beam.mesh = box
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	beam.material_override = mat
-	add_child(beam)
-	beam.global_position = (start + end) * 0.5
-	beam.look_at(end, Vector3.UP)
-	get_tree().create_timer(max(lifetime, 0.05)).timeout.connect(beam.queue_free)
+	if start.distance_to(end) <= 0.01: return
+	var kind = "shock" if color.g > 0.8 and color.r > 0.8 else ("flame" if color.r > 0.8 and color.b < 0.2 else "laser")
+	_directional_fx(start, end, kind, maxf(width * 6.0, 0.42), lifetime)
+	_play_reference_impact(end, "explosion" if kind == "flame" else ("shock" if kind == "shock" else "energy_impact"), 0.9)
 
 func _make_burst(pos: Vector3, color: Color, radius: float) -> void:
-	var impact_sprite = SpriteVisuals.make_impact(color, radius)
-	add_child(impact_sprite)
-	impact_sprite.global_position = Vector3(pos.x, 0.85, pos.z)
-	var impact_tween = create_tween()
-	impact_tween.tween_property(impact_sprite, "scale", Vector3.ONE * 1.6, 0.2)
-	impact_tween.tween_callback(impact_sprite.queue_free)
-	var burst = MeshInstance3D.new()
-	var sphere = SphereMesh.new()
-	sphere.radius = radius * 0.35
-	sphere.height = radius * 0.7
-	burst.mesh = sphere
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color * 0.8
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color.a = 0.55
-	burst.material_override = mat
-	add_child(burst)
-	burst.global_position = Vector3(pos.x, 0.7, pos.z)
-	var tween = create_tween()
-	tween.tween_property(burst, "scale", Vector3.ONE * 1.8, 0.16)
-	tween.tween_callback(burst.queue_free)
+	_play_reference_impact(Vector3(pos.x, 0.9, pos.z), "blade" if color.b > 0.8 else "explosion", clampf(radius * 0.9, 1.0, 5.5))
 
 func on_zombie_killed(_zombie: Node, kind: String, pos: Vector3) -> void:
+	_play_reference_impact(pos + Vector3.UP * 0.5, "blood", 1.35)
 	kills += 1
 	score += int(zombie_points.get(kind, 10))
 	var xp_gain = 8
@@ -1527,6 +1561,7 @@ func _open_upgrade_choice() -> void:
 			var id = available[i]
 			b.set_meta("upgrade_id", id)
 			b.text = _upgrade_option_text(id)
+			b.icon = SpriteVisuals.ability_icon(id)
 			b.disabled = false
 			b.show()
 		else:
@@ -1878,11 +1913,13 @@ func _update_camera() -> void:
 func _update_hud() -> void:
 	if round_label == null:
 		return
-	round_label.text = "ROUND %d / %d" % [round_number, MAX_ROUND]
+	round_label.text = "%d / %d 라운드 · %d초" % [round_number, MAX_ROUND, int(ceil(max(round_time_left, 0.0)))]
 	timer_label.text = "TIME %05.2f" % max(round_time_left, 0.0)
-	score_label.text = "SCORE %d · KILLS %d" % [score, kills]
+	score_label.text = "점수 %d · 처치 %d" % [score, kills]
 	if player != null and is_instance_valid(player):
-		hp_label.text = "HP %d / %d" % [int(ceil(player.hp)), int(player.max_hp)]
+		hp_label.text = "HP %d / %d · Lv.%d" % [int(ceil(player.hp)), int(player.max_hp), level]
+		xp_bar.max_value = xp_needed
+		xp_bar.value = xp
 		xp_label.text = "LV %d · XP %d / %d" % [level, xp, xp_needed]
 		var weapon_id = player.current_weapon_id()
 		var name = str(get_weapon_data(weapon_id).get("name", weapon_id))
@@ -1901,7 +1938,7 @@ func _update_hud() -> void:
 		if player.special_slots.size() >= 2:
 			var b: Dictionary = player.special_slots[1]
 			slot2 = "%s(%d)" % [str(get_weapon_data(str(b["id"])).get("name",b["id"])), int(b["ammo"])]
-		weapon_label.text = "WEAPON %s · %s\n[2] %s  [3] %s" % [name, ammo, slot1, slot2]
+		weapon_label.text = "%s · %s" % [name, ammo]
 		if touch_weapon_buttons.size() >= 4:
 			touch_weapon_buttons[0].disabled = false
 			touch_weapon_buttons[1].disabled = player.special_slots.size() < 1

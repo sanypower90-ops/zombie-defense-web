@@ -1,7 +1,9 @@
 extends RefCounted
 
 # Independent ImageTextures prevent Sprite3D atlas UVs from sampling neighbors.
-const PLAYER = preload("res://assets/sprites/player_actions.png")
+const PLAYER = preload("res://assets/sprites/player_directional_v2.png")
+const ABILITIES = preload("res://assets/sprites/ability_illustrations.png")
+const ABILITY_IDS = ["damage", "fire_rate", "move_speed", "vitality", "pickup", "flame", "explosive", "energy", "auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile", "clone", "activation", "spark"]
 const ZOMBIES = preload("res://assets/sprites/zombie_groups.png")
 const SPECIAL = preload("res://assets/sprites/armored_exploder.png")
 const BOSSES = preload("res://assets/sprites/boss_groups.png")
@@ -47,7 +49,7 @@ static func _pose(source: Texture2D, sheet: String, row: int, action: String, fr
 static func player_direction(yaw: float) -> int:
 	var forward = Vector3(-sin(yaw), 0.0, -cos(yaw))
 	var octant = posmod(int(round(atan2(forward.x, forward.z) / (PI / 4.0))), 8)
-	return [0, 6, 5, 4, 3, 3, 2, 1][octant]
+	return [0, 7, 6, 5, 4, 3, 2, 1][octant]
 
 static func _sprite(pixel_size: float) -> Sprite3D:
 	var sprite = Sprite3D.new()
@@ -64,7 +66,18 @@ static func make_player() -> Sprite3D:
 	return sprite
 
 static func _player_frame(direction: int, action: String, frame: int) -> ImageTexture:
-	return _pose(PLAYER, "player_actions", posmod(direction, 7), action, frame)
+	var cell = posmod(direction, 8) + (8 if action == "walk" else 0)
+	var key = "player-v2:%d" % cell
+	if not _atlas_cache.has(key):
+		var rect = _grid_region(PLAYER, cell)
+		var image = _frame(PLAYER, rect).get_image()
+		image = image.get_region(image.get_used_rect())
+		image.resize(maxi(1, int(float(image.get_width()) * 114.0 / image.get_height())), 114, Image.INTERPOLATE_LANCZOS)
+		var canvas = Image.create(160, 144, false, Image.FORMAT_RGBA8)
+		canvas.fill(Color.TRANSPARENT)
+		canvas.blit_rect(image, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i((160 - image.get_width()) / 2, 26))
+		_atlas_cache[key] = ImageTexture.create_from_image(canvas)
+	return _atlas_cache[key]
 
 static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: float, recoil: float, hurt: bool = false) -> void:
 	if sprite == null:
@@ -193,3 +206,55 @@ static func make_shot(color: Color) -> Sprite3D:
 	sprite.texture = _frame(WEAPON_FX, Rect2(5, 60, 255, 95))
 	sprite.modulate = color
 	return sprite
+
+static func _grid_region(source: Texture2D, index: int) -> Rect2:
+	var step = source.get_size() / 4.0
+	var column = index % 4
+	var row = index / 4
+	var start = Vector2(floor(column * step.x), floor(row * step.y))
+	var finish = Vector2(floor((column + 1) * step.x), floor((row + 1) * step.y))
+	return Rect2(start, finish - start)
+
+static func ability_icon(id: String) -> ImageTexture:
+	var index = ABILITY_IDS.find(id)
+	if index < 0: index = 15
+	return _frame(ABILITIES, _grid_region(ABILITIES, index))
+
+static func make_ability_sprite(id: String, diameter: float = 1.4) -> Sprite3D:
+	var sprite = _sprite(diameter / (ABILITIES.get_width() / 4.0))
+	sprite.texture = ability_icon(id)
+	sprite.name = "AbilityIllustration"
+	return sprite
+
+static func fx_texture(kind: String, frame: int = 0) -> ImageTexture:
+	if kind == "blade": return ability_icon("auto_blade")
+	if kind == "shock": return ability_icon("auto_shock")
+	var regions = {
+		"bullet": [Rect2(16, 7, 100, 54)],
+		"muzzle": [Rect2(15, 140, 110, 76), Rect2(130, 140, 125, 76)],
+		"laser": [Rect2(14, 298, 219, 66)],
+		"energy_impact": [Rect2(17, 359, 136, 87), Rect2(156, 359, 135, 87)],
+		"flame": [Rect2(20, 743, 164, 78), Rect2(188, 743, 162, 78)],
+		"rocket": [Rect2(18, 596, 167, 62)],
+		"grenade": [Rect2(25, 445, 100, 65)],
+		"explosion": [Rect2(14, 504, 110, 89), Rect2(128, 504, 124, 89), Rect2(264, 504, 138, 89), Rect2(410, 504, 150, 89)],
+		"blood": [Rect2(15, 900, 125, 77), Rect2(146, 900, 121, 77), Rect2(275, 900, 121, 77)]
+	}
+	var frames: Array = regions.get(kind, regions["muzzle"])
+	return _frame(PROJECTILE_FX, frames[posmod(frame, frames.size())])
+
+static func make_fx(kind: String, diameter: float = 1.0) -> Sprite3D:
+	var sprite = _sprite(0.01)
+	sprite.name = "ReferenceFX_" + kind
+	sprite.flip_h = kind == "bullet"
+	sprite.texture = fx_texture(kind)
+	sprite.pixel_size = diameter / maxf(sprite.texture.get_width(), sprite.texture.get_height())
+	sprite.position = Vector3.ZERO
+	return sprite
+
+static func align_fx(sprite: Sprite3D, camera: Camera3D, direction: Vector3) -> void:
+	# A camera-facing plane with an explicit basis preserves the on-screen roll.
+	var view_direction = camera.global_basis.inverse() * direction
+	var angle = atan2(view_direction.y, view_direction.x)
+	sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	sprite.global_basis = camera.global_basis * Basis(Vector3.BACK, angle)

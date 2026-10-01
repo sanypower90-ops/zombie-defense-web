@@ -67,8 +67,6 @@ func _build_visual() -> void:
 	visual_root.hide()
 	sprite_visual = SpriteVisuals.make_player()
 	add_child(sprite_visual)
-	weapon_icon = SpriteVisuals.make_weapon_icon("pistol")
-	add_child(weapon_icon)
 	weapon_mount = visual_root.get_node("WeaponMount")
 	visual_weapon_id = "pistol"
 	VisualFactory.set_player_weapon(weapon_mount, visual_weapon_id)
@@ -76,8 +74,8 @@ func _build_visual() -> void:
 	weapon_name_label.position = Vector3(0, 2.05, 0)
 	weapon_name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	weapon_name_label.no_depth_test = true
-	weapon_name_label.font_size = 56
-	weapon_name_label.pixel_size = 0.007
+	weapon_name_label.font_size = 42
+	weapon_name_label.pixel_size = 0.005
 	weapon_name_label.modulate = Color(1.0, 0.91, 0.48)
 	add_child(weapon_name_label)
 
@@ -182,7 +180,7 @@ func _move_player() -> void:
 	if keyboard.length_squared() > 1.0:
 		keyboard = keyboard.normalized()
 	var input_vec = keyboard if keyboard.length_squared() > 0.0 else touch_move_vector
-	var dir = Vector3(input_vec.x, 0.0, input_vec.y)
+	var dir = _screen_to_ground_direction(input_vec)
 	if dir.length_squared() > 1.0:
 		dir = dir.normalized()
 	var speed = base_move_speed * game.get_player_move_multiplier()
@@ -197,10 +195,19 @@ func _move_player() -> void:
 	p.y = 0.85
 	global_position = p
 
+func _screen_to_ground_direction(input_vector: Vector2) -> Vector3:
+	if game.camera == null:
+		return Vector3(input_vector.x, 0, input_vector.y)
+	var right = game.camera.global_basis.x
+	var forward = -game.camera.global_basis.z
+	right.y = 0.0
+	forward.y = 0.0
+	return right.normalized() * input_vector.x - forward.normalized() * input_vector.y
+
 func _aim_at_pointer() -> void:
 	# The movement stick also sets the firing direction.
 	if move_touch_id >= 0:
-		var world_dir = Vector3(touch_move_vector.x, 0.0, touch_move_vector.y)
+		var world_dir = _screen_to_ground_direction(touch_move_vector)
 		if world_dir.length_squared() <= 0.001:
 			var nearby = game.find_nearest_zombie(global_position, float(game.get_weapon_data(current_weapon_id()).get("range", 20.0)))
 			if nearby != null:

@@ -3,6 +3,9 @@ extends SceneTree
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
 
 func _initialize() -> void:
+	call_deferred("_run")
+
+func _run() -> void:
 	var sprites: Array[Sprite3D] = []
 	sprites.append(SpriteVisuals.make_player())
 	for kind in ["walker", "runner", "brute", "armored", "exploder", "spitter", "charger", "toxic", "screamer", "shield", "leaper", "regenerator", "nightmare", "boss", "final_boss"]:
@@ -40,12 +43,32 @@ func _initialize() -> void:
 	var directions = {}
 	for i in range(8):
 		var yaw = PI - float(i) * PI / 4.0
+		if SpriteVisuals.player_direction(yaw) != i:
+			push_error("Player compass direction uses the wrong atlas cell")
+			quit(1)
+			return
 		directions[SpriteVisuals.player_direction(yaw)] = true
-	if directions.size() < 7:
-		push_error("Player facing does not cover the supplied seven directions")
+	if directions.size() != 8:
+		push_error("Player facing does not cover the eight illustrated directions")
 		quit(1)
 		return
+	var camera = Camera3D.new()
+	root.add_child(camera)
+	camera.position = Vector3(0, 23, 17)
+	camera.look_at(Vector3.ZERO)
+	var fx = SpriteVisuals.make_fx("bullet", 0.5)
+	root.add_child(fx)
+	for i in range(8):
+		var direction = Vector3(sin(i * PI / 4.0), 0, cos(i * PI / 4.0))
+		SpriteVisuals.align_fx(fx, camera, direction)
+		var projected = direction - camera.global_basis.z * direction.dot(camera.global_basis.z)
+		if fx.global_basis.x.normalized().dot(projected.normalized()) < 0.999:
+			push_error("Bullet illustration does not follow its projected firing direction")
+			quit(1)
+			return
+	fx.free()
+	camera.free()
 	for sprite in sprites:
 		sprite.free()
-	print("SPRITE_VISUALS_PASS: %d isolated textures and seven facing directions" % sprites.size())
+	print("SPRITE_VISUALS_PASS: %d isolated textures and eight facing directions" % sprites.size())
 	quit(0)

@@ -2,6 +2,7 @@ extends Node3D
 
 # Short, readable world-space feedback that follows the player. The same palette
 # is used for pickups, consumables and the corresponding level-up abilities.
+const Visuals = preload("res://scripts/sprite_visuals.gd")
 const FONT = preload("res://assets/fonts/NotoSansKR.ttf")
 const EFFECT_TIME := 2.4
 const ITEM_NAMES := {
@@ -38,7 +39,9 @@ func show_pickup(kind: String, id: String, weapon_name: String = "") -> void:
 	_emit("무기 획득 · %s" % name if kind == "weapon" else "아이템 획득 · %s" % name, color, id, false)
 
 func show_upgrade(id: String, level: int) -> void:
-	_emit("%s 강화 Lv.%d" % [ABILITY_NAMES.get(id, id), level], COLORS.get(id, Color.WHITE), id, true)
+	_emit("%s Lv.%d" % [ABILITY_NAMES.get(id, id), level], COLORS.get(id, Color.WHITE), id, true)
+	if id.begins_with("auto_"):
+		_show_aura(id, INF)
 
 func show_item_use(id: String, expires_at: float = 0.0) -> void:
 	_emit("%s 사용" % ITEM_NAMES.get(id, id), COLORS.get(id, Color.WHITE), id, false)
@@ -48,57 +51,49 @@ func show_item_use(id: String, expires_at: float = 0.0) -> void:
 func _emit(caption: String, color: Color, id: String, upgrade: bool) -> void:
 	var effect = Node3D.new()
 	add_child(effect)
-	var ring_count = 3 if upgrade else 2
-	for i in range(ring_count):
-		var ring = _ring(effect, 1.1 + i * 0.2, color)
-		ring.position.y = -0.78 + i * 0.11
-		ring.scale = Vector3.ONE * (0.5 + i * 0.15)
-		var tween = create_tween()
-		tween.tween_property(ring, "scale", Vector3.ONE * (2.2 + i * 0.65), 0.85 + i * 0.18).set_delay(i * 0.14)
-		tween.parallel().tween_property(ring, "transparency", 1.0, 0.85 + i * 0.18).set_delay(i * 0.14)
+	var ring = Visuals.make_ability_sprite("activation", 2.8 if upgrade else 2.0)
+	effect.add_child(ring)
+	ring.position = Vector3(0, -0.75, 0)
+	ring.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	ring.rotation.x = -PI / 2.0
+	ring.modulate.a = 0.65
+	var ring_tween = create_tween()
+	ring_tween.tween_property(ring, "scale", Vector3.ONE * 1.25, 0.65)
+	ring_tween.parallel().tween_property(ring, "modulate:a", 0.0, 0.65)
 	_make_motif(effect, id, color, upgrade)
 	var label = Label3D.new()
 	label.text = caption
 	label.font = FONT
-	label.font_size = 64
-	label.pixel_size = 0.012
+	label.font_size = 44
+	label.pixel_size = 0.0055
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.modulate = color
-	label.outline_size = 12
-	label.position = Vector3(0, 2.0, 0)
+	label.modulate = Color(1, 0.97, 0.88)
+	label.outline_size = 5
+	label.position = Vector3(0, 2.6, 0)
 	effect.add_child(label)
 	var text_tween = create_tween()
-	text_tween.tween_property(label, "position:y", 3.1, EFFECT_TIME)
+	text_tween.tween_property(label, "position:y", 3.25, EFFECT_TIME)
 	text_tween.parallel().tween_property(label, "transparency", 1.0, EFFECT_TIME).set_delay(0.8)
 	get_tree().create_timer(EFFECT_TIME).timeout.connect(effect.queue_free)
 
-func _make_motif(parent: Node3D, id: String, color: Color, upgrade: bool) -> void:
-	var count = 10 if upgrade else 7
-	var radius = 1.55 if upgrade else 1.25
-	for i in range(count):
-		var angle = TAU * float(i) / float(count)
-		var direction = Vector3(cos(angle), 0, sin(angle))
-		var shape: MeshInstance3D
-		match id:
-			"auto_orbit", "pickup", "xp_burst":
-				shape = _orb(parent, 0.17, color)
-			"auto_blade", "damage", "armor":
-				shape = _block(parent, Vector3(0.16, 0.15, 0.62), color)
-			"auto_missile", "fire_rate", "move_speed", "speed":
-				shape = _block(parent, Vector3(0.15, 0.12, 0.88), color)
-			"vitality", "heal", "clone", "invuln":
-				shape = _block(parent, Vector3(0.22, 0.85, 0.22), color)
-			"flame", "auto_flame", "bomb", "explosive":
-				shape = _orb(parent, 0.25, color)
-			"energy", "auto_shock":
-				shape = _block(parent, Vector3(0.12, 0.88, 0.12), color)
-			_:
-				shape = _orb(parent, 0.15, color)
-		shape.position = direction * radius + Vector3(0, 0.15 if i % 2 == 0 else 0.55, 0)
-		shape.rotation.y = -angle
-		var tween = create_tween()
-		tween.tween_property(shape, "position", direction * (radius + 0.85) + Vector3(0, 1.4 + float(i % 3) * 0.3, 0), EFFECT_TIME * 0.72)
-		tween.parallel().tween_property(shape, "transparency", 1.0, EFFECT_TIME * 0.72).set_delay(0.35)
+func _make_motif(parent: Node3D, id: String, _color: Color, upgrade: bool) -> void:
+	var aliases = {"heal": "vitality", "speed": "move_speed", "armor": "vitality", "bomb": "explosive", "invuln": "energy", "xp_burst": "energy"}
+	var icon_id = str(aliases.get(id, id))
+	var icon = Visuals.make_ability_sprite(icon_id, 1.35 if upgrade else 0.9)
+	parent.add_child(icon)
+	icon.position = Vector3(0, 1.6, 0)
+	var tween = create_tween()
+	tween.tween_property(icon, "position:y", 2.35, 0.85)
+	tween.parallel().tween_property(icon, "scale", Vector3.ONE * 1.15, 0.45)
+	tween.tween_property(icon, "modulate:a", 0.0, 0.45)
+	for i in range(4):
+		var spark = Visuals.make_ability_sprite("spark", 0.25)
+		parent.add_child(spark)
+		var angle = TAU * float(i) / 4.0
+		spark.position = Vector3(cos(angle) * 0.8, 0.3, sin(angle) * 0.8)
+		var spark_tween = create_tween()
+		spark_tween.tween_property(spark, "position", spark.position * 1.6 + Vector3.UP * 0.6, 0.7)
+		spark_tween.parallel().tween_property(spark, "modulate:a", 0.0, 0.7)
 
 func _show_aura(id: String, expires_at: float) -> void:
 	if active_auras.has(id) and is_instance_valid(active_auras[id]):
@@ -107,12 +102,18 @@ func _show_aura(id: String, expires_at: float) -> void:
 	var aura = Node3D.new()
 	add_child(aura)
 	aura.set_meta("expires_at", expires_at)
-	var ring = _ring(aura, 1.65, COLORS.get(id, Color.WHITE))
-	ring.position.y = -0.72
-	for i in range(4):
-		var orb = _orb(aura, 0.12, COLORS.get(id, Color.WHITE))
-		var angle = TAU * float(i) / 4.0
-		orb.position = Vector3(cos(angle) * 1.65, 0.45, sin(angle) * 1.65)
+	var aliases = {"speed": "move_speed", "armor": "vitality", "invuln": "energy"}
+	var icon = Visuals.make_ability_sprite(str(aliases.get(id, id)), 0.72)
+	aura.add_child(icon)
+	var index = maxi(0, Visuals.ABILITY_IDS.find(id))
+	var angle = TAU * float(index % 5) / 5.0
+	icon.position = Vector3(cos(angle) * 1.5, 0.8, sin(angle) * 1.5)
+	if id == "auto_flame":
+		icon.position = Vector3(0, -0.72, 0)
+		icon.pixel_size *= 3.5
+		icon.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+		icon.rotation.x = -PI / 2.0
+		icon.modulate.a = 0.55
 	active_auras[id] = aura
 
 func _process(delta: float) -> void:
