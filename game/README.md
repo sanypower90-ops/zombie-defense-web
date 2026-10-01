@@ -38,8 +38,17 @@ Godot 4.7.2 Compatibility 기반의 쿼터뷰 게임입니다. 캐릭터·좀비
 
 ## 실행·검증·배포
 
-`godot --headless --path game --import` 후 `tests/`의 smoke, sprite_visuals, ability_effects, ability_combat, boss_hit 테스트를 실행합니다.
+`godot --headless --path game --import` 후 `tests/`의 smoke, sprite_visuals, ability_effects, ability_combat, boss_hit, orbit_range 테스트를 실행합니다.
 
-`.github/workflows/pages.yml`은 이 다섯 검사를 통과한 뒤 Web export와 GitHub Pages 배포를 진행합니다. 싱글스레드 Web export를 사용합니다.
+`.github/workflows/pages.yml`은 이 여섯 검사를 통과한 뒤 Web export와 GitHub Pages 배포를 진행합니다. 싱글스레드 Web export를 사용합니다.
 
 홈 화면에 추가해서 실행하면 PWA standalone 화면으로 사용할 수 있습니다. 일반 브라우저 주소창은 게임에서 강제로 숨기지 않습니다.
+
+## 사거리·회전 수호 능력·이미지 수정 (v5)
+
+- 자동 공격 5종의 탐색 사거리를 기존의 정확히 2배로 늘렸습니다. 새 `flight_v5.png` 투사체·명중 그림과 최대 6개의 짧은 잔상을 사용합니다.
+- 기본무기 버튼을 클릭하면 권총·장검·주먹 목록이 열리고, 선택하면 바로 장착됩니다. 목록이 열려 있는 동안 게임은 일시정지합니다. PC에서도 하단 무기 버튼을 표시합니다.
+- 게임 메뉴에 홈으로 바로가기와 다시하기를 추가했습니다. 홈 이동 전에 보관 아이템을 저장합니다.
+- 수호 구체·수호 칼날 강화는 각각 최대 5레벨이며, 레벨마다 개체가 1개 추가됩니다. 반경 3의 원형 궤도를 돌며 5초 활성·2초 비활성 주기를 반복합니다.
+- 활성 개체에 닿은 좀비는 피해를 받으며 그대로 통과합니다. 개체는 물리적인 벽이 아닙니다. 적 미사일이 개체에 닿으면 차단하고, 활성 중 플레이어가 받는 피해를 25% 줄입니다. 비활성 시간에는 공격·방어 효과가 모두 꺼집니다. 일시정지하면 주기도 멈춥니다.
+- `zombies_v5.png`, `heavy_v5.png`, `props_v5.png`로 일반/특수 좀비·보스·지형 6종을 교체했습니다. 생성 시트의 불규칙한 기존 좌표 대신 동일한 4×4 격자를 사용합니다. 미세한 알파 잡음을 제외하고 전신을 비율대로 축소해 머리·손·발이 고정 캔버스에 잘리는 일을 막습니다.

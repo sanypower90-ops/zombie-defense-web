@@ -10,6 +10,7 @@ const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
 const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
+const OrbitGuard = preload("res://scripts/orbit_guard.gd")
 const BossProjectile = preload("res://scripts/boss_projectile.gd")
 
 const ROUND_DURATION := 30.0
@@ -19,6 +20,8 @@ const MAP_HALF_SIZE := 38.0
 
 var player
 var ability_effects
+var orbit_guard
+var base_weapon_panel: PanelContainer
 var camera: Camera3D
 var menu_music: AudioStreamPlayer
 var gameplay_music: AudioStreamPlayer
@@ -75,7 +78,7 @@ var upgrades = {
 	"explosive": 0,
 	"energy": 0,
 	"auto_orbit": 0, "auto_shock": 0, "auto_flame": 0,
-	"auto_blade": 0, "auto_missile": 0, "clone": 0
+	"auto_blade": 0, "auto_missile": 0, "clone": 0, "guard_orbs": 0, "guard_blades": 0
 }
 
 var weapon_data = {
@@ -230,11 +233,33 @@ func play_zombie_death_sfx(kind: String) -> void:
 	_play_sfx("zombie", pitch)
 
 func _toggle_game_menu() -> void:
-	if not game_active or upgrade_panel.visible or leaderboard_panel.visible:
+	if not game_active or upgrade_panel.visible or leaderboard_panel.visible or base_weapon_panel.visible:
 		return
 	game_menu_panel.visible = not game_menu_panel.visible
 	gameplay_paused = game_menu_panel.visible
 	pause_button.text = "계속하기" if gameplay_paused else "일시정지"
+
+func _go_home() -> void:
+	if game_active: _save_checkpoint(round_number)
+	_show_main_menu()
+
+func _open_base_weapon_list() -> void:
+	if not game_active or upgrade_panel.visible or game_menu_panel.visible: return
+	base_weapon_panel.show()
+	gameplay_paused = true
+	if player != null:
+		player.touch_firing = false
+		player.move_touch_id = -1
+		player.touch_move_vector = Vector2.ZERO
+
+func _choose_base_weapon(id: String) -> void:
+	if player != null: player.select_base_weapon(id)
+	_close_base_weapon_list()
+	_update_weapon_buttons()
+
+func _close_base_weapon_list() -> void:
+	base_weapon_panel.hide()
+	gameplay_paused = false
 
 func _toggle_pause() -> void:
 	if not game_active:
@@ -243,6 +268,7 @@ func _toggle_pause() -> void:
 	pause_button.text = "계속하기" if gameplay_paused else "일시정지"
 	if not gameplay_paused:
 		game_menu_panel.hide()
+		if base_weapon_panel != null: base_weapon_panel.hide()
 
 func _physics_process(delta: float) -> void:
 	if not can_world_update():
@@ -480,7 +506,7 @@ func _build_ui() -> void:
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_box.add_child(controls)
-	game_menu_panel = _make_center_panel(hud, Vector2(430, 250))
+	game_menu_panel = _make_center_panel(hud, Vector2(430, 410))
 	var game_menu_box = VBoxContainer.new()
 	game_menu_box.add_theme_constant_override("separation", 12)
 	game_menu_panel.add_child(game_menu_box)
@@ -499,7 +525,37 @@ func _build_ui() -> void:
 	game_character_button.custom_minimum_size = Vector2(0, 52)
 	game_character_button.pressed.connect(_show_character_panel)
 	game_menu_box.add_child(game_character_button)
+	var home_button = Button.new()
+	home_button.text = "홈으로 바로가기"
+	home_button.custom_minimum_size = Vector2(0, 56)
+	home_button.pressed.connect(_go_home)
+	game_menu_box.add_child(home_button)
+	var restart_button = Button.new()
+	restart_button.text = "다시하기"
+	restart_button.custom_minimum_size = Vector2(0, 56)
+	restart_button.pressed.connect(start_new_game)
+	game_menu_box.add_child(restart_button)
+	base_weapon_panel = _make_center_panel(hud, Vector2(460, 340))
+	var base_box = VBoxContainer.new()
+	base_box.add_theme_constant_override("separation", 12)
+	base_weapon_panel.add_child(base_box)
+	var base_title = Label.new()
+	base_title.text = "기본 무기 선택"
+	base_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	base_box.add_child(base_title)
+	for id in ["pistol", "sword", "fist"]:
+		var button = Button.new()
+		button.text = str(weapon_data[id]["name"])
+		button.custom_minimum_size = Vector2(0, 56)
+		button.pressed.connect(_choose_base_weapon.bind(id))
+		base_box.add_child(button)
+	var close = Button.new()
+	close.text = "닫기"
+	close.pressed.connect(_close_base_weapon_list)
+	base_box.add_child(close)
+	base_weapon_panel.hide()
 	game_menu_panel.hide()
+	if base_weapon_panel != null: base_weapon_panel.hide()
 
 	character_panel = _make_center_panel(hud, Vector2(560, 650))
 	character_box = VBoxContainer.new()
@@ -742,6 +798,7 @@ func _on_cloud_stash_loaded(ok: bool, stash: Dictionary, message: String) -> voi
 		player.queue_free()
 		player = null
 		ability_effects = null
+		orbit_guard = null
 	if character_panel != null and character_panel.visible:
 		_refresh_character_panel()
 
@@ -858,7 +915,9 @@ func _build_touch_controls(hud: Control) -> void:
 		b.add_theme_stylebox_override("disabled", weapon_slot_normal)
 		b.add_theme_color_override("font_disabled_color", Color(0.59, 0.65, 0.72))
 		b.mouse_filter = Control.MOUSE_FILTER_STOP
-		if i < 3:
+		if i == 0:
+			b.pressed.connect(_open_base_weapon_list)
+		elif i < 3:
 			b.pressed.connect(_touch_select_weapon.bind(i))
 		else:
 			b.pressed.connect(_touch_reload)
@@ -866,7 +925,8 @@ func _build_touch_controls(hud: Control) -> void:
 		touch_weapon_buttons.append(b)
 
 	# On phones/tablets the overlay is shown automatically. Desktop keeps the screen clean.
-	touch_controls.visible = _is_mobile_layout()
+	touch_controls.visible = game_active
+	touch_hit_zone.visible = _is_mobile_layout()
 
 func _on_viewport_resized() -> void:
 	_layout_ui(get_viewport().get_visible_rect().size, _is_mobile_layout())
@@ -899,6 +959,9 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	music_button.position = Vector2(view_size.x - 28.0 - 200.0 * menu_button_scale, 18.0)
 	game_menu_button.scale = Vector2.ONE * menu_button_scale
 	game_menu_button.position = Vector2(view_size.x - 18.0 - 116.0 * menu_button_scale, 18.0)
+	if game_active and not mobile:
+		hud_rank_button.position.x = view_size.x - 18.0 - 224.0 * menu_button_scale
+		music_button.position.x = view_size.x - 18.0 - 332.0 * menu_button_scale
 	if mobile and game_active:
 		hud_rank_button.hide()
 		music_button.hide()
@@ -924,7 +987,8 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	var weapon_scale = 1.85 if mobile and portrait else (1.25 if mobile else 1.0)
 	var row_width = (3.0 * 160.0 + 100.0 + 3.0 * 8.0) * weapon_scale
 	var stick_center_y = touch_hit_zone.position.y + hit_size * 0.5
-	var row_y = stick_center_y - stick_size * 0.5 - 76.0 * weapon_scale - 20.0
+	var row_y = stick_center_y - stick_size * 0.5 - 76.0 * weapon_scale - 20.0 if mobile else view_size.y - 96.0
+	touch_hit_zone.visible = mobile
 	for i in range(touch_weapon_buttons.size()):
 		var button = touch_weapon_buttons[i]
 		button.add_theme_font_size_override("font_size", 24)
@@ -991,6 +1055,7 @@ func _show_main_menu() -> void:
 	game_active = false
 	game_menu_button.hide()
 	game_menu_panel.hide()
+	if base_weapon_panel != null: base_weapon_panel.hide()
 	character_panel.hide()
 	account_panel.hide()
 	_on_viewport_resized()
@@ -1024,13 +1089,15 @@ func start_new_game() -> void:
 	game_active = true
 	game_menu_button.show()
 	game_menu_panel.hide()
+	if base_weapon_panel != null: base_weapon_panel.hide()
 	character_panel.hide()
 	account_panel.hide()
 	pause_button.text = "일시정지"
 	_on_viewport_resized()
 	_switch_music(true)
 	if touch_controls != null:
-		touch_controls.visible = _is_mobile_layout()
+		touch_controls.visible = true
+		touch_hit_zone.visible = _is_mobile_layout()
 
 	score = 0
 	kills = 0
@@ -1042,7 +1109,7 @@ func start_new_game() -> void:
 		"damage":0, "fire_rate":0, "move_speed":0, "vitality":0,
 		"pickup":0, "flame":0, "explosive":0, "energy":0,
 		"auto_orbit":0, "auto_shock":0, "auto_flame":0,
-		"auto_blade":0, "auto_missile":0, "clone":0
+		"auto_blade":0, "auto_missile":0, "clone":0, "guard_orbs":0, "guard_blades":0
 	}
 
 	player = PlayerScript.new()
@@ -1051,6 +1118,9 @@ func start_new_game() -> void:
 	player.global_position = Vector3(0, 0.85, 0)
 	ability_effects = AbilityEffectsScript.new()
 	player.add_child(ability_effects)
+	orbit_guard = OrbitGuard.new()
+	player.add_child(orbit_guard)
+	orbit_guard.setup(self)
 
 	round_number = 1
 	var stored: Dictionary = save_manager.load_checkpoint()
@@ -1330,7 +1400,7 @@ func find_nearest_zombie(origin: Vector3, max_distance: float) -> Node3D:
 	return nearest
 
 func get_auto_attack_range(id: String, lv: int) -> float:
-	return 5.0 + lv * 0.9 + (6.0 if id == "auto_missile" else 0.0)
+	return 2.0 * (5.0 + lv * 0.9 + (6.0 if id == "auto_missile" else 0.0))
 
 func _update_auto_attacks(delta: float) -> void:
 	auto_attack_elapsed += delta
@@ -1613,7 +1683,7 @@ func _add_xp(amount: int) -> void:
 func _open_upgrade_choice() -> void:
 	var available: Array[String] = []
 	for id in upgrades.keys():
-		var max_level = 2 if id == "clone" else (5 if str(id).begins_with("auto_") else 4)
+		var max_level = 2 if id == "clone" else (5 if str(id).begins_with("auto_") or str(id).begins_with("guard_") else 4)
 		if int(upgrades[id]) < max_level:
 			available.append(str(id))
 	if available.is_empty():
@@ -1643,7 +1713,7 @@ func _upgrade_option_text(id: String) -> String:
 		"vitality":"생존력", "pickup":"자석", "flame":"화염 숙련",
 		"explosive":"폭발 숙련", "energy":"에너지 숙련",
 		"auto_orbit":"궤도 드론", "auto_shock":"전기 충격", "auto_flame":"추적 화염탄",
-		"auto_blade":"회전 칼날", "auto_missile":"추적 미사일", "clone":"분신"
+		"auto_blade":"회전 칼날", "auto_missile":"추적 미사일", "clone":"분신", "guard_orbs":"수호 구체", "guard_blades":"수호 칼날"
 	}
 	var suffix = " I"
 	if next_level == 2: suffix = " II"
@@ -1655,6 +1725,7 @@ func _upgrade_option_text(id: String) -> String:
 func _upgrade_description(id: String, next_level: int) -> String:
 	var evolved = next_level >= 4
 	match id:
+		"guard_orbs", "guard_blades": return "회전 개체 +1 · 5초 공격/방어, 2초 대기 · 최대 5개 · 활성 중 피해 25% 감소"
 		"clone": return "분신 +1명 (플레이어 포함 최대 3명)"
 		"auto_orbit": return "주변 적 자동 추적 사격 · 최대 5레벨"
 		"auto_shock": return "적에게 날아가는 전기탄 · 최대 5레벨"
@@ -1691,11 +1762,13 @@ func _on_upgrade_selected(index: int) -> void:
 		_open_upgrade_choice()
 
 func _apply_upgrade(id: String) -> void:
-	var max_level = 2 if id == "clone" else (5 if id.begins_with("auto_") else 4)
+	var max_level = 2 if id == "clone" else (5 if id.begins_with("auto_") or id.begins_with("guard_") else 4)
 	upgrades[id] = min(int(upgrades.get(id, 0)) + 1, max_level)
 	var lv = int(upgrades[id])
 	if id.begins_with("auto_") and ability_effects != null:
 		ability_effects.ensure_companion(id, lv)
+	if id.begins_with("guard_") and orbit_guard != null:
+		orbit_guard.refresh()
 	if id == "vitality" and player != null:
 		if lv < 4:
 			player.max_hp += 15.0
@@ -1861,6 +1934,7 @@ func _end_run(win: bool) -> void:
 	game_active = false
 	game_menu_button.hide()
 	game_menu_panel.hide()
+	if base_weapon_panel != null: base_weapon_panel.hide()
 	_on_viewport_resized()
 	_switch_music(false)
 	gameplay_paused = false
@@ -2059,3 +2133,4 @@ func _clear_dynamic_entities() -> void:
 		player.queue_free()
 	player = null
 	ability_effects = null
+	orbit_guard = null

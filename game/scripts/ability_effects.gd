@@ -15,7 +15,7 @@ const ABILITY_NAMES := {
 	"explosive": "폭발 숙련", "energy": "에너지 숙련",
 	"auto_orbit": "궤도 드론", "auto_shock": "전기 충격",
 	"auto_flame": "추적 화염탄", "auto_blade": "회전 칼날",
-	"auto_missile": "추적 미사일", "clone": "분신"
+	"auto_missile": "추적 미사일", "clone": "분신", "guard_orbs":"수호 구체", "guard_blades":"수호 칼날"
 }
 const COLORS := {
 	"heal": Color(0.26, 1.0, 0.43), "vitality": Color(0.26, 1.0, 0.43),

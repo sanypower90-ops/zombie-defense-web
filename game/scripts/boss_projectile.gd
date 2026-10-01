@@ -43,6 +43,9 @@ func advance(delta: float) -> void:
 	var start = global_position
 	var end = start + direction * speed * delta
 	var blocked: Vector3 = game._obstacle_endpoint(start, end)
+	if game.orbit_guard != null and game.orbit_guard.blocks_segment(start, blocked):
+		_finish(blocked)
+		return
 	var flat_start = Vector2(start.x, start.z)
 	var flat_end = Vector2(blocked.x, blocked.z)
 	var player = game.player

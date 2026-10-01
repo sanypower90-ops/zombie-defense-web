@@ -1,6 +1,10 @@
 extends RefCounted
 
 # Independent ImageTextures prevent Sprite3D atlas UVs from sampling neighbors.
+const FLIGHT = preload("res://assets/sprites/flight_v5.png")
+const ZOMBIES_V5 = preload("res://assets/sprites/zombies_v5.png")
+const HEAVY_V5 = preload("res://assets/sprites/heavy_v5.png")
+const PROPS_V5 = preload("res://assets/sprites/props_v5.png")
 const PLAYER = preload("res://assets/sprites/player_directional_v2.png")
 const PLAYER_WALK = preload("res://assets/sprites/player_walk_v3.png")
 const ATTACKS = preload("res://assets/sprites/ability_attacks_v2.png")
@@ -23,7 +27,15 @@ static func _frame(source: Texture2D, rect: Rect2, character: bool = false) -> I
 	var key = "%s:%s:%s" % [source.resource_path, str(rect), str(character)]
 	if not _atlas_cache.has(key):
 		if not _source_images.has(source.resource_path):
-			_source_images[source.resource_path] = source.get_image()
+			var original = source.get_image()
+			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5]:
+				original.convert(Image.FORMAT_RGBA8)
+				var pixels = original.get_data()
+				# Barely visible alpha noise must not expand a frame's bounds.
+				for offset in range(3, pixels.size(), 4):
+					if pixels[offset] <= 8: pixels[offset] = 0
+				original = Image.create_from_data(original.get_width(), original.get_height(), false, Image.FORMAT_RGBA8, pixels)
+			_source_images[source.resource_path] = original
 		var source_image: Image = _source_images[source.resource_path]
 		var image = source_image.get_region(Rect2i(rect))
 		image.convert(Image.FORMAT_RGBA8)
@@ -167,19 +179,23 @@ static func make_zombie(kind: String) -> Sprite3D:
 	return sprite
 
 static func _zombie_frame(kind: String, direction: int, action: String, frame: int) -> ImageTexture:
-	var group = 0
-	if kind == "exploder":
-		return _pose(SPECIAL, "exploder", posmod(direction, 3), action, frame)
-	if kind == "armored":
-		return _pose(SPECIAL, "armored_exploder", posmod(direction, 3), action, frame)
-	if kind in ["boss", "final_boss", "nightmare"]:
-		group = 3 if kind == "final_boss" else (2 if kind == "boss" else 1)
-		return _pose(BOSSES, "boss_groups", group * 3 + posmod(direction, 3), action, frame)
-	if kind in ["brute", "charger"]: group = 2
-	elif kind in ["armored", "shield", "leaper"]: group = 3
-	elif kind in ["toxic", "spitter", "regenerator"]: group = 4
-	elif kind == "runner": group = 1
-	return _pose(ZOMBIES, "zombie_groups", group * 3 + posmod(direction, 3), action, frame)
+	var rows = {"walker":0, "screamer":0, "runner":1, "leaper":1, "brute":2, "charger":2, "armored":3, "shield":3}
+	var heavy_rows = {"toxic":0, "spitter":0, "regenerator":0, "exploder":1, "nightmare":2, "boss":2, "final_boss":3}
+	var source: Texture2D = HEAVY_V5 if heavy_rows.has(kind) else ZOMBIES_V5
+	var row = int(heavy_rows.get(kind, 0) if heavy_rows.has(kind) else rows.get(kind, 0))
+	var column = (2 if direction == 1 else 0) + (posmod(frame, 2) if action in ["walk", "attack"] else 0)
+	var key = "zombie-v5:%s:%d:%d" % [source.resource_path, row, column]
+	if not _atlas_cache.has(key):
+		var image = _frame(source, _grid_region(source, row * 4 + column)).get_image()
+		image = image.get_region(image.get_used_rect())
+		# Fit the COMPLETE silhouette first; old fixed-size blits clipped large heads.
+		var factor = minf(150.0 / image.get_width(), 114.0 / image.get_height())
+		image.resize(maxi(1, int(image.get_width() * factor)), maxi(1, int(image.get_height() * factor)), Image.INTERPOLATE_LANCZOS)
+		var canvas = Image.create(160, 144, false, Image.FORMAT_RGBA8)
+		canvas.fill(Color.TRANSPARENT)
+		canvas.blit_rect(image, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i((160 - image.get_width()) / 2, 140 - image.get_height()))
+		_atlas_cache[key] = ImageTexture.create_from_image(canvas)
+	return _atlas_cache[key]
 
 static func update_zombie(sprite: Sprite3D, kind: String, facing: Vector3, phase: float, motion: float, attack: float, hurt: float) -> void:
 	if sprite == null:
@@ -194,6 +210,9 @@ static func update_zombie(sprite: Sprite3D, kind: String, facing: Vector3, phase
 static func show_zombie_death(sprite: Sprite3D, kind: String) -> void:
 	if sprite != null:
 		sprite.texture = _zombie_frame(kind, 0, "death", 2)
+		sprite.modulate.a = 0.65
+		sprite.scale.y *= 0.35
+		sprite.position.y -= 0.55
 
 static func _item_rect(kind: String, payload: String) -> Rect2:
 	if kind == "weapon":
@@ -239,24 +258,30 @@ static func set_weapon_icon(sprite: Sprite3D, weapon_id: String) -> void:
 		sprite.texture = _frame(ITEMS, _item_rect("weapon", weapon_id))
 
 static func make_prop(kind: String, size: Vector3) -> Sprite3D:
-	var regions = {
-		"car": Rect2(0, 835, 260, 250),
-		"kiosk": Rect2(255, 862, 248, 224),
-		"barrier": Rect2(510, 895, 218, 191),
-		"cone": Rect2(733, 900, 97, 175),
-		"lamp": Rect2(830, 803, 99, 281),
-		"crate": Rect2(925, 887, 180, 195)
-	}
-	var rect: Rect2 = regions.get(kind, regions["crate"])
-	var pixel_size = min(size.x / rect.size.x, size.y * 1.7 / rect.size.y)
-	if kind in ["car", "kiosk", "barrier"]:
-		pixel_size = size.x * 0.9 / rect.size.x
-	elif kind in ["lamp", "crate", "cone"]:
-		pixel_size = size.y / rect.size.y
+	var texture = prop_texture(kind)
+	var pixel_size = size.x * 0.9 / texture.get_width() if kind in ["car", "kiosk", "barrier"] else size.y / texture.get_height()
 	var sprite = _sprite(pixel_size)
 	sprite.name = "PropSprite"
 	sprite.position.y = 0.0
-	sprite.texture = _frame(ITEMS, rect)
+	sprite.texture = texture
+	return sprite
+
+static func prop_texture(kind: String) -> ImageTexture:
+	return isolated_grid_texture(PROPS_V5, {"car":0, "kiosk":1, "barrier":2, "cone":3, "lamp":4, "crate":5}.get(kind, 5))
+
+static func isolated_grid_texture(source: Texture2D, index: int) -> ImageTexture:
+	var key = "%s:isolated:%d" % [source.resource_path, index]
+	if not _atlas_cache.has(key):
+		var image = _frame(source, _grid_region(source, index)).get_image()
+		image = image.get_region(image.get_used_rect())
+		_atlas_cache[key] = ImageTexture.create_from_image(image)
+	return _atlas_cache[key]
+
+static func make_guard_sprite(id: String, diameter: float) -> Sprite3D:
+	var texture = isolated_grid_texture(FLIGHT, {"guard_orbs":10, "guard_blades":11, "ring":12, "spark":13}.get(id, 10))
+	var sprite = _sprite(diameter / maxf(texture.get_width(), texture.get_height()))
+	sprite.texture = texture
+	sprite.position = Vector3.ZERO
 	return sprite
 
 static func make_impact(color: Color, radius: float) -> Sprite3D:
@@ -286,6 +311,8 @@ static func _grid_region(source: Texture2D, index: int) -> Rect2:
 static func ability_icon(id: String) -> ImageTexture:
 	if id.begins_with("auto_"):
 		return companion_texture(id)
+	if id.begins_with("guard_"):
+		return isolated_grid_texture(FLIGHT, 10 if id == "guard_orbs" else 11)
 	var index = ABILITY_IDS.find(id)
 	if index < 0: index = 15
 	return _frame(ABILITIES, _grid_region(ABILITIES, index))
@@ -297,8 +324,9 @@ static func make_ability_sprite(id: String, diameter: float = 1.4) -> Sprite3D:
 	return sprite
 
 static func attack_texture(id: String, impact: bool = false) -> ImageTexture:
-	if not impact and id != "clone":
-		return combat_texture({"auto_orbit":5, "auto_shock":6, "auto_flame":7, "auto_blade":8, "auto_missile":9}.get(id, 5))
+	if id != "clone":
+		var cells = {"auto_orbit":5, "auto_shock":6, "auto_flame":7, "auto_blade":8, "auto_missile":9} if impact else {"auto_orbit":0, "auto_shock":1, "auto_flame":2, "auto_blade":3, "auto_missile":4}
+		return isolated_grid_texture(FLIGHT, cells.get(id, 0))
 	var cells = {"auto_orbit": 7, "auto_shock": 6, "auto_flame": 5, "auto_blade": 8, "auto_missile": 9, "clone": 7} if impact else {"auto_orbit": 0, "auto_shock": 1, "auto_flame": 5, "auto_blade": 2, "auto_missile": 3, "clone": 10}
 	var index: int = cells.get(id, 0)
 	var key = "attack-v2:%d" % index

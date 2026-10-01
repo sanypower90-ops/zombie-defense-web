@@ -145,7 +145,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			cycle_weapon(1)
 
 func _begin_touch(index: int, position: Vector2) -> void:
-	if game.touch_hit_zone == null or not game.touch_hit_zone.get_global_rect().has_point(position):
+	if game.touch_hit_zone == null or not game.touch_hit_zone.visible or not game.touch_hit_zone.get_global_rect().has_point(position):
 		return
 	for button in game.touch_weapon_buttons:
 		if button.visible and button.get_global_rect().has_point(position):
@@ -399,6 +399,8 @@ func apply_damage(amount: float) -> void:
 	if hp <= 0.0 or amount <= 0.0 or hurt_invulnerability_left > 0.0 or now < invuln_until or now < hurt_cooldown_until:
 		return
 	var final_amount = amount
+	if game != null and game.orbit_guard != null and game.orbit_guard.is_active():
+		final_amount *= 0.75
 	if now < armor_buff_until:
 		final_amount *= 0.5
 	# Two seconds of simulation time freeze with pause and block every damage source.
