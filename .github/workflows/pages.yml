@@ -51,10 +51,11 @@ jobs:
       - name: Export Web game
         run: |
           mkdir -p build/web
-          godot --headless --path game --export-release "Web" "$GITHUB_WORKSPACE/build/web/index.html"
+          godot --headless --path game --export-release "Web" "$GITHUB_WORKSPACE/build/web/index-$GITHUB_SHA.html"
+          mv "build/web/index-$GITHUB_SHA.html" build/web/index.html
           test -s build/web/index.html
-          test -s build/web/index.wasm
-          test -s build/web/index.pck
+          test -s "build/web/index-$GITHUB_SHA.wasm"
+          test -s "build/web/index-$GITHUB_SHA.pck"
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload playable build
