@@ -29,6 +29,8 @@ var move_touch_id = -1
 var move_touch_origin = Vector2.ZERO
 var touch_move_vector = Vector2.ZERO
 var touch_firing = false
+var touch_mode = false
+var aim_direction = Vector3.FORWARD
 
 var speed_buff_until = 0.0
 var damage_buff_until = 0.0
@@ -120,6 +122,17 @@ func _input(event: InputEvent) -> void:
 			return
 		_update_touch(drag.index, drag.position)
 
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		# Some mobile webviews expose the thumb as a mouse pointer.
+		if game != null and game._is_mobile_layout():
+			if not event.pressed:
+				_release_touch(100000)
+			elif game.can_player_act() and move_touch_id < 0:
+				_begin_touch(100000, event.position)
+	elif event is InputEventMouseMotion and move_touch_id == 100000:
+		if game != null and game.can_player_act():
+			_update_touch(100000, event.position)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if game == null or not game.can_player_act():
 		return
@@ -133,6 +146,7 @@ func _begin_touch(index: int, position: Vector2) -> void:
 	if game.touch_hit_zone == null or not game.touch_hit_zone.get_global_rect().has_point(position):
 		return
 	if move_touch_id < 0:
+		touch_mode = true
 		move_touch_id = index
 		move_touch_origin = position
 		touch_move_vector = Vector2.ZERO
@@ -195,7 +209,11 @@ func _aim_at_pointer() -> void:
 		if world_dir.length_squared() > 0.001:
 			var target = global_position + world_dir.normalized() * 8.0
 			target.y = global_position.y
+			aim_direction = world_dir.normalized()
 			look_at(target, Vector3.UP)
+		return
+	# A released touch must not become a mouse aimed at the bottom joystick.
+	if touch_mode:
 		return
 	var camera = game.camera
 	if camera == null:
@@ -211,6 +229,7 @@ func _aim_at_pointer() -> void:
 	var target = origin + ray_dir * t
 	target.y = global_position.y
 	if target.distance_to(global_position) > 0.1:
+		aim_direction = (target - global_position).normalized()
 		look_at(target, Vector3.UP)
 
 func _handle_selection_keys() -> void:

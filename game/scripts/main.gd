@@ -1204,7 +1204,7 @@ func fire_weapon(shooter: Node3D, weapon_id: String) -> bool:
 	var data: Dictionary = get_weapon_data(weapon_id)
 	var base_damage = float(data.get("damage", 10.0))
 	var damage = base_damage * get_player_damage_multiplier() * player.temporary_damage_multiplier()
-	var forward = -shooter.global_transform.basis.z
+	var forward = player.aim_direction if shooter == player else -shooter.global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
 	var start = shooter.global_position + Vector3(0, 0.65, 0) + forward * 0.7
@@ -1434,9 +1434,6 @@ func _make_tracer(start: Vector3, end: Vector3, color: Color, speed: float, thic
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	tracer.material_override = mat
 	add_child(tracer)
-	var shot_sprite = SpriteVisuals.make_shot(color)
-	add_child(shot_sprite)
-	shot_sprite.global_position = start
 	tracer.global_position = start
 	tracer.look_at(end, Vector3.UP)
 	var duration = clamp(distance / max(speed, 1.0), 0.16, 0.48)
@@ -1444,9 +1441,6 @@ func _make_tracer(start: Vector3, end: Vector3, color: Color, speed: float, thic
 	tween.tween_property(tracer, "global_position", end, duration)
 	tween.tween_interval(0.06)
 	tween.tween_callback(tracer.queue_free)
-	var shot_tween = create_tween()
-	shot_tween.tween_property(shot_sprite, "global_position", end, duration)
-	shot_tween.tween_callback(shot_sprite.queue_free)
 
 func _make_beam(start: Vector3, end: Vector3, color: Color, width: float, lifetime: float = 0.16) -> void:
 	var length = start.distance_to(end)

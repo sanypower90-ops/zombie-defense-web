@@ -17,18 +17,35 @@ func _initialize() -> void:
 		sprites.append(SpriteVisuals.make_prop(kind, Vector3(2, 2, 2)))
 	sprites.append(SpriteVisuals.make_impact(Color.WHITE, 2.0))
 	sprites.append(SpriteVisuals.make_shot(Color.WHITE))
-	for sprite in sprites:
-		if sprite.texture == null or not sprite.texture is AtlasTexture:
-			push_error("Sprite texture missing: " + sprite.name)
+	var preview = Image.create(1280, 720, false, Image.FORMAT_RGBA8)
+	preview.fill(Color(0.08, 0.13, 0.23))
+	for i in range(sprites.size()):
+		var sprite = sprites[i]
+		if not sprite.texture is ImageTexture:
+			push_error("Sprite must use an isolated texture: " + sprite.name)
 			quit(1)
 			return
-		var atlas := sprite.texture as AtlasTexture
-		var size := atlas.atlas.get_size()
-		if atlas.region.position.x < 0 or atlas.region.position.y < 0 or atlas.region.end.x > size.x or atlas.region.end.y > size.y:
-			push_error("Sprite atlas region outside PNG: " + sprite.name)
+		var image = sprite.texture.get_image()
+		if image.get_used_rect().size == Vector2i.ZERO:
+			push_error("Sprite is empty: " + sprite.name)
 			quit(1)
 			return
+		if sprite.name in ["PlayerSprite", "ZombieSprite"]:
+			if image.get_size() != Vector2i(160, 144):
+				push_error("Character foot anchor canvas is inconsistent")
+				quit(1)
+				return
+			preview.blit_rect(image, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i((i % 8) * 160, (i / 8) * 144))
+	preview.save_png("/private/tmp/sprite-isolation-preview.png")
+	var directions = {}
+	for i in range(8):
+		var yaw = PI - float(i) * PI / 4.0
+		directions[SpriteVisuals.player_direction(yaw)] = true
+	if directions.size() < 7:
+		push_error("Player facing does not cover the supplied seven directions")
+		quit(1)
+		return
 	for sprite in sprites:
 		sprite.free()
-	print("SPRITE_VISUALS_PASS: %d sprite states and atlas bounds" % sprites.size())
+	print("SPRITE_VISUALS_PASS: %d isolated textures and seven facing directions" % sprites.size())
 	quit(0)

@@ -1,7 +1,6 @@
 extends RefCounted
 
-# The supplied PNGs remain intact. AtlasTexture selects frames without
-# generating hundreds of separate image files or duplicating GPU textures.
+# Independent ImageTextures prevent Sprite3D atlas UVs from sampling neighbors.
 const PLAYER = preload("res://assets/sprites/player_actions.png")
 const ZOMBIES = preload("res://assets/sprites/zombie_groups.png")
 const SPECIAL = preload("res://assets/sprites/armored_exploder.png")
@@ -11,16 +10,44 @@ const PROJECTILE_FX = preload("res://assets/sprites/projectile_fx.png")
 const WEAPON_FX = preload("res://assets/sprites/weapon_fx.png")
 
 static var _atlas_cache: Dictionary = {}
+static var _source_images: Dictionary = {}
+static var _regions: Dictionary = {}
 
-static func _frame(source: Texture2D, rect: Rect2) -> AtlasTexture:
-	var key = "%s:%d:%d:%d:%d" % [source.resource_path, int(rect.position.x), int(rect.position.y), int(rect.size.x), int(rect.size.y)]
+static func _frame(source: Texture2D, rect: Rect2, character: bool = false) -> ImageTexture:
+	var key = "%s:%s:%s" % [source.resource_path, str(rect), str(character)]
 	if not _atlas_cache.has(key):
-		var atlas = AtlasTexture.new()
-		atlas.atlas = source
-		atlas.region = rect
-		atlas.filter_clip = true
-		_atlas_cache[key] = atlas
+		if not _source_images.has(source.resource_path):
+			_source_images[source.resource_path] = source.get_image()
+		var source_image: Image = _source_images[source.resource_path]
+		var image = source_image.get_region(Rect2i(rect))
+		image.convert(Image.FORMAT_RGBA8)
+		if character:
+			# All poses share a foot anchor; their differing bounds do not jitter.
+			var canvas = Image.create(160, 144, false, Image.FORMAT_RGBA8)
+			canvas.fill(Color.TRANSPARENT)
+			canvas.blit_rect(image, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i((160 - image.get_width()) / 2, 140 - image.get_height()))
+			image = canvas
+		_atlas_cache[key] = ImageTexture.create_from_image(image)
 	return _atlas_cache[key]
+
+static func _pose(source: Texture2D, sheet: String, row: int, action: String, frame: int) -> ImageTexture:
+	if _regions.is_empty():
+		_regions = JSON.parse_string(FileAccess.get_file_as_string("res://assets/sprites/frame_regions.json"))
+	var poses: Array = _regions[sheet][row]
+	var usable: Array = []
+	for pose in poses:
+		if float(pose[2]) < 80.0:
+			usable.append(pose)
+	var index = 0 if action == "idle" else posmod(frame, mini(4, usable.size()))
+	if sheet == "player_actions" and action == "walk" and usable.size() > 4:
+		index = 4 + posmod(frame, usable.size() - 4)
+	var bounds: Array = usable[index]
+	return _frame(source, Rect2(bounds[0], bounds[1], bounds[2], bounds[3]), true)
+
+static func player_direction(yaw: float) -> int:
+	var forward = Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var octant = posmod(int(round(atan2(forward.x, forward.z) / (PI / 4.0))), 8)
+	return [0, 6, 5, 4, 3, 3, 2, 1][octant]
 
 static func _sprite(pixel_size: float) -> Sprite3D:
 	var sprite = Sprite3D.new()
@@ -36,21 +63,13 @@ static func make_player() -> Sprite3D:
 	sprite.texture = _player_frame(0, "idle", 0)
 	return sprite
 
-static func _player_frame(direction: int, action: String, frame: int) -> AtlasTexture:
-	var start := 0
-	var width := 67
-	var count := 4
-	match action:
-		"walk": start = 265; width = 59; count = 5
-		"attack": start = 565; width = 70; count = 4
-		"hit": start = 875; width = 67; count = 4
-		"death": start = 1145; width = 75; count = 4
-	return _frame(PLAYER, Rect2(start + (frame % count) * width, direction * 140, width, 138))
+static func _player_frame(direction: int, action: String, frame: int) -> ImageTexture:
+	return _pose(PLAYER, "player_actions", posmod(direction, 7), action, frame)
 
 static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: float, recoil: float, hurt: bool = false) -> void:
 	if sprite == null:
 		return
-	var direction = posmod(int(round(wrapf(yaw - PI, 0.0, TAU) * 7.0 / TAU)), 7)
+	var direction = player_direction(yaw)
 	var action = "attack" if recoil > 0.08 else ("hit" if hurt else ("walk" if motion > 0.05 else "idle"))
 	var frame = int(floor(phase * (0.9 if action == "walk" else 0.55)))
 	sprite.texture = _player_frame(direction, action, frame)
@@ -66,44 +85,27 @@ static func make_zombie(kind: String) -> Sprite3D:
 	sprite.texture = _zombie_frame(kind, 0, "idle", 0)
 	return sprite
 
-static func _zombie_frame(kind: String, direction: int, action: String, frame: int) -> AtlasTexture:
-	var source: Texture2D = ZOMBIES
-	var row := 0
-	var row_height := 90
-	var col_width := 72
-	var start_x := 0
-	var max_columns := 20
-	if kind in ["armored", "exploder"]:
-		source = SPECIAL
-		row = posmod(direction, 8)
-		row_height = 135
-		col_width = 65
-		start_x = 0 if kind == "armored" else 724
-		max_columns = 11
-	elif kind in ["boss", "final_boss", "nightmare"]:
-		source = BOSSES
-		row = (9 if kind == "final_boss" else (6 if kind == "boss" else 3)) + posmod(direction, 3)
-	else:
-		var group = 0
-		if kind in ["brute", "charger"]: group = 1
-		elif kind in ["shield", "leaper"]: group = 2
-		elif kind in ["toxic", "spitter", "regenerator"]: group = 3
-		row = group * 3 + posmod(direction, 3)
-	var column := 0
-	match action:
-		"walk": column = 1 + frame % 7
-		"attack": column = 8 + frame % 4
-		"hit": column = 12 + frame % 2
-		"death": column = 15 + frame % 4
-	column = min(column, max_columns - 1)
-	return _frame(source, Rect2(start_x + column * col_width, row * row_height, col_width, row_height))
+static func _zombie_frame(kind: String, direction: int, action: String, frame: int) -> ImageTexture:
+	var group = 0
+	if kind == "exploder":
+		return _pose(SPECIAL, "exploder", posmod(direction, 3), action, frame)
+	if kind == "armored":
+		return _pose(SPECIAL, "armored_exploder", posmod(direction, 3), action, frame)
+	if kind in ["boss", "final_boss", "nightmare"]:
+		group = 3 if kind == "final_boss" else (2 if kind == "boss" else 1)
+		return _pose(BOSSES, "boss_groups", group * 3 + posmod(direction, 3), action, frame)
+	if kind in ["brute", "charger"]: group = 2
+	elif kind in ["armored", "shield", "leaper"]: group = 3
+	elif kind in ["toxic", "spitter", "regenerator"]: group = 4
+	elif kind == "runner": group = 1
+	return _pose(ZOMBIES, "zombie_groups", group * 3 + posmod(direction, 3), action, frame)
 
 static func update_zombie(sprite: Sprite3D, kind: String, facing: Vector3, phase: float, motion: float, attack: float, hurt: float) -> void:
 	if sprite == null:
 		return
-	var angle = atan2(facing.x, facing.z)
-	var direction_count = 8 if kind in ["armored", "exploder"] else 3
-	var direction = posmod(int(round(angle * float(direction_count) / TAU)), direction_count)
+	# Sheets contain front, diagonal and back poses, rather than uniform angles.
+	var direction = 0 if facing.z > abs(facing.x) * 0.5 else (2 if facing.z < -abs(facing.x) * 0.5 else 1)
+	sprite.flip_h = facing.x > 0.0
 	var action = "attack" if attack > 0.1 else ("hit" if hurt > 0.1 else ("walk" if motion > 0.05 else "idle"))
 	var frame = int(floor(phase * 0.65))
 	sprite.texture = _zombie_frame(kind, direction, action, frame)
@@ -158,11 +160,11 @@ static func set_weapon_icon(sprite: Sprite3D, weapon_id: String) -> void:
 static func make_prop(kind: String, size: Vector3) -> Sprite3D:
 	var regions = {
 		"car": Rect2(0, 835, 260, 250),
-		"kiosk": Rect2(260, 835, 250, 250),
-		"barrier": Rect2(510, 835, 240, 250),
-		"cone": Rect2(750, 835, 130, 250),
-		"lamp": Rect2(880, 805, 150, 280),
-		"crate": Rect2(1030, 835, 155, 250)
+		"kiosk": Rect2(255, 862, 248, 224),
+		"barrier": Rect2(510, 895, 218, 191),
+		"cone": Rect2(733, 900, 97, 175),
+		"lamp": Rect2(830, 803, 99, 281),
+		"crate": Rect2(925, 887, 180, 195)
 	}
 	var rect: Rect2 = regions.get(kind, regions["crate"])
 	var pixel_size = min(size.x / rect.size.x, size.y * 1.7 / rect.size.y)

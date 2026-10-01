@@ -148,8 +148,24 @@ func _run() -> void:
 		push_error("Touch movement did not move the character")
 		quit(1)
 		return
+	# Every stick direction must drive both the visible facing and firing ray.
+	for direction in [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN, Vector2(1, -1), Vector2(-1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		drag.position = touch_start + direction.normalized() * 100.0
+		game.player._input(drag)
+		game.player._aim_at_pointer()
+		var expected = Vector3(direction.x, 0, direction.y).normalized()
+		if game.player.aim_direction.dot(expected) < 0.999 or (-game.player.global_transform.basis.z).dot(expected) < 0.999:
+			push_error("Touch facing and firing direction diverged")
+			quit(1)
+			return
+	var released_aim: Vector3 = game.player.aim_direction
 	touch.pressed = false
 	game.player._input(touch)
+	game.player._aim_at_pointer()
+	if game.player.aim_direction != released_aim:
+		push_error("Released joystick was replaced by an emulated downward mouse aim")
+		quit(1)
+		return
 	game._spawn_zombie("runner")
 	game._spawn_pickup(Vector3.ZERO, "weapon", "flamethrower")
 	game._spawn_pickup(Vector3(2, 0, 0), "item", "heal")
