@@ -99,7 +99,8 @@ func _physics_process(delta: float) -> void:
 	_aim_at_pointer()
 	_handle_fire()
 	var motion = clamp(velocity.length() / max(base_move_speed, 0.01), 0.0, 1.0)
-	walk_phase += delta * (9.0 if motion > 0.05 else 2.0)
+	if motion > 0.05:
+		walk_phase += velocity.length() * delta * TAU / 4.4
 	recoil_left = max(recoil_left - delta * 6.0, 0.0)
 	VisualFactory.animate_player(visual_root, walk_phase, motion, recoil_left)
 	SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, motion, recoil_left)
@@ -143,6 +144,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _begin_touch(index: int, position: Vector2) -> void:
 	if game.touch_hit_zone == null or not game.touch_hit_zone.get_global_rect().has_point(position):
 		return
+	for button in game.touch_weapon_buttons:
+		if button.visible and button.get_global_rect().has_point(position):
+			return
 	if move_touch_id < 0:
 		touch_mode = true
 		move_touch_id = index
@@ -298,7 +302,7 @@ func current_weapon_id() -> String:
 	var idx = selected_slot - 1
 	if idx < 0 or idx >= special_slots.size():
 		selected_slot = 0
-		return "pistol"
+		return base_weapon_id
 	return str(special_slots[idx].get("id", "pistol"))
 
 func current_special_ammo() -> int:

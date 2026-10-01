@@ -2,6 +2,8 @@ extends RefCounted
 
 # Independent ImageTextures prevent Sprite3D atlas UVs from sampling neighbors.
 const PLAYER = preload("res://assets/sprites/player_directional_v2.png")
+const PLAYER_WALK = preload("res://assets/sprites/player_walk_v3.png")
+const ATTACKS = preload("res://assets/sprites/ability_attacks_v2.png")
 const ABILITIES = preload("res://assets/sprites/ability_illustrations.png")
 const ABILITY_IDS = ["damage", "fire_rate", "move_speed", "vitality", "pickup", "flame", "explosive", "energy", "auto_orbit", "auto_shock", "auto_flame", "auto_blade", "auto_missile", "clone", "activation", "spark"]
 const ZOMBIES = preload("res://assets/sprites/zombie_groups.png")
@@ -14,6 +16,7 @@ const WEAPON_FX = preload("res://assets/sprites/weapon_fx.png")
 static var _atlas_cache: Dictionary = {}
 static var _source_images: Dictionary = {}
 static var _regions: Dictionary = {}
+static var _walk_regions: Array = []
 
 static func _frame(source: Texture2D, rect: Rect2, character: bool = false) -> ImageTexture:
 	var key = "%s:%s:%s" % [source.resource_path, str(rect), str(character)]
@@ -66,25 +69,89 @@ static func make_player() -> Sprite3D:
 	return sprite
 
 static func _player_frame(direction: int, action: String, frame: int) -> ImageTexture:
-	var cell = posmod(direction, 8) + (8 if action == "walk" else 0)
-	var key = "player-v2:%d" % cell
+	var facing = posmod(direction, 8)
+	var walking = action == "walk"
+	# The final west pose in the generated sheet points diagonally, so the
+	# returning passing pose is reused to preserve the correct aim direction.
+	var walk_frame = [0, 1, 2, 1][posmod(frame, 4)] if facing == 2 else posmod(frame, 4)
+	var key = "player-v3:%d:%d" % [facing, walk_frame if walking else -1]
 	if not _atlas_cache.has(key):
-		var rect = _grid_region(PLAYER, cell)
-		var image = _frame(PLAYER, rect).get_image()
-		image = image.get_region(image.get_used_rect())
-		image.resize(maxi(1, int(float(image.get_width()) * 114.0 / image.get_height())), 114, Image.INTERPOLATE_LANCZOS)
+		var image: Image
+		var normal_height = 114.0
+		if walking:
+			if _walk_regions.is_empty():
+				_walk_regions = JSON.parse_string(FileAccess.get_file_as_string("res://assets/sprites/walk_regions.json"))
+			var bounds: Array = _walk_regions[facing][walk_frame]
+			image = _isolate_character(_frame(PLAYER_WALK, Rect2(bounds[0], bounds[1], bounds[2], bounds[3])).get_image())
+			var tallest = 1.0
+			for region in _walk_regions[facing]: tallest = maxf(tallest, float(region[3]))
+			normal_height = image.get_height() * 114.0 / tallest
+		else:
+			image = _frame(PLAYER, _grid_region(PLAYER, facing)).get_image()
+			image = image.get_region(image.get_used_rect())
+		image.resize(maxi(1, int(image.get_width() * normal_height / image.get_height())), maxi(1, int(normal_height)), Image.INTERPOLATE_LANCZOS)
 		var canvas = Image.create(160, 144, false, Image.FORMAT_RGBA8)
 		canvas.fill(Color.TRANSPARENT)
-		canvas.blit_rect(image, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i((160 - image.get_width()) / 2, 26))
+		canvas.blit_rect(image, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i((160 - image.get_width()) / 2, 140 - image.get_height()))
 		_atlas_cache[key] = ImageTexture.create_from_image(canvas)
 	return _atlas_cache[key]
+
+static func _isolate_character(source: Image) -> Image:
+	# Generated rows are not perfectly aligned. Keep the connected character
+	# inside its bounds, excluding any neighboring cap/boot in the rectangle.
+	var image = source.duplicate()
+	var width = image.get_width()
+	var height = image.get_height()
+	var center = Vector2(width, height) * 0.5
+	var seed = -1
+	var best = INF
+	for y in range(height):
+		for x in range(width):
+			if image.get_pixel(x, y).a > 0.08:
+				var distance = Vector2(x, y).distance_squared_to(center)
+				if distance < best:
+					best = distance
+					seed = y * width + x
+	if seed < 0: return image
+	var mask = PackedByteArray()
+	mask.resize(width * height)
+	var queue = PackedInt32Array([seed])
+	mask[seed] = 1
+	while not queue.is_empty():
+		var p = queue[-1]
+		queue.resize(queue.size() - 1)
+		var x = p % width
+		var y = p / width
+		for offset in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+			var nx = x + offset.x
+			var ny = y + offset.y
+			if nx >= 0 and nx < width and ny >= 0 and ny < height:
+				var index = ny * width + nx
+				if mask[index] == 0 and image.get_pixel(nx, ny).a > 0.08:
+					mask[index] = 1
+					queue.append(index)
+	for y in range(height):
+		for x in range(width):
+			if mask[y * width + x] == 1: continue
+			var color = image.get_pixel(x, y)
+			if color.a <= 0.0: continue
+			var edge = false
+			if color.a <= 0.08:
+				for offset in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+					var nx = x + offset.x
+					var ny = y + offset.y
+					if nx >= 0 and nx < width and ny >= 0 and ny < height and mask[ny * width + nx] == 1:
+						edge = true
+			if not edge: image.set_pixel(x, y, Color.TRANSPARENT)
+	return image
 
 static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: float, recoil: float, hurt: bool = false) -> void:
 	if sprite == null:
 		return
 	var direction = player_direction(yaw)
-	var action = "attack" if recoil > 0.08 else ("hit" if hurt else ("walk" if motion > 0.05 else "idle"))
-	var frame = int(floor(phase * (0.9 if action == "walk" else 0.55)))
+	# Shooting no longer replaces moving legs with a frozen standing pose.
+	var action = "walk" if motion > 0.05 else ("hit" if hurt else ("attack" if recoil > 0.08 else "idle"))
+	var frame = int(floor(phase / TAU * 4.0))
 	sprite.texture = _player_frame(direction, action, frame)
 
 static func make_zombie(kind: String) -> Sprite3D:
@@ -224,6 +291,24 @@ static func make_ability_sprite(id: String, diameter: float = 1.4) -> Sprite3D:
 	var sprite = _sprite(diameter / (ABILITIES.get_width() / 4.0))
 	sprite.texture = ability_icon(id)
 	sprite.name = "AbilityIllustration"
+	return sprite
+
+static func attack_texture(id: String, impact: bool = false) -> ImageTexture:
+	var cells = {"auto_orbit": 7, "auto_shock": 6, "auto_flame": 5, "auto_blade": 8, "auto_missile": 9, "clone": 7} if impact else {"auto_orbit": 0, "auto_shock": 1, "auto_flame": 5, "auto_blade": 2, "auto_missile": 3, "clone": 10}
+	var index: int = cells.get(id, 0)
+	var key = "attack-v2:%d" % index
+	if not _atlas_cache.has(key):
+		var image = _frame(ATTACKS, _grid_region(ATTACKS, index)).get_image()
+		image = image.get_region(image.get_used_rect())
+		_atlas_cache[key] = ImageTexture.create_from_image(image)
+	return _atlas_cache[key]
+
+static func make_attack_sprite(id: String, impact: bool = false, diameter: float = 1.2) -> Sprite3D:
+	var texture = attack_texture(id, impact)
+	var sprite = _sprite(diameter / maxf(texture.get_width(), texture.get_height()))
+	sprite.texture = texture
+	sprite.position = Vector3.ZERO
+	sprite.name = "AttackIllustration_" + id
 	return sprite
 
 static func fx_texture(kind: String, frame: int = 0) -> ImageTexture:

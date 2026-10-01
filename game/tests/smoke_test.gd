@@ -65,6 +65,37 @@ func _run() -> void:
 		push_error("Touch controls still contain a separate firing stick")
 		quit(1)
 		return
+	game._update_hud()
+	if not game.touch_weapon_buttons[0].text.contains("권총") or not game.touch_weapon_buttons[0].text.contains("12발"):
+		push_error("Basic slot does not show weapon name and remaining ammunition")
+		quit(1)
+		return
+	game.player.acquire_weapon("shotgun")
+	game.player.acquire_weapon("flamethrower")
+	game._update_hud()
+	if not game.touch_weapon_buttons[1].text.contains("샷건") or not game.touch_weapon_buttons[2].text.contains("화염방사기"):
+		push_error("Pickup names do not replace generic special-slot labels")
+		quit(1)
+		return
+	game.player.select_weapon_slot(1)
+	game.player._consume_current_ammo(1)
+	game._update_hud()
+	if not game.touch_weapon_buttons[1].text.contains("%d발" % game.player.current_special_ammo()):
+		push_error("Weapon slot ammunition did not update after firing")
+		quit(1)
+		return
+	var weapon_touch = InputEventScreenTouch.new()
+	weapon_touch.index = 8
+	weapon_touch.pressed = true
+	weapon_touch.position = game.touch_weapon_buttons[1].get_global_rect().get_center()
+	game.player._input(weapon_touch)
+	if game.player.move_touch_id != -1:
+		push_error("Weapon-button touch incorrectly engaged the movement stick")
+		quit(1)
+		return
+	game.player.special_slots.clear()
+	game.player.selected_slot = 0
+	game._update_hud()
 	game.game_menu_button.pressed.emit()
 	if not game.game_menu_panel.visible or not game.gameplay_paused:
 		push_error("The in-game menu did not open and pause")

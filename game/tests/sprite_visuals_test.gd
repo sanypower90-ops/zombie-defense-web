@@ -52,6 +52,27 @@ func _run() -> void:
 		push_error("Player facing does not cover the eight illustrated directions")
 		quit(1)
 		return
+	for direction in range(8):
+		var walking_frames = {}
+		for phase in range(4):
+			var texture = SpriteVisuals._player_frame(direction, "walk", phase)
+			var image = texture.get_image()
+			if image.get_size() != Vector2i(160, 144) or image.get_used_rect().size.y < 100:
+				push_error("Walking character is clipped or has no complete body")
+				quit(1)
+				return
+			walking_frames[image.get_data().hex_encode().sha256_text()] = true
+		if walking_frames.size() < 3:
+			push_error("Walking feet do not animate in direction %d" % direction)
+			quit(1)
+			return
+	var moving = SpriteVisuals.make_player()
+	SpriteVisuals.update_player(moving, PI, TAU / 4.0, 1.0, 1.0)
+	if moving.texture != SpriteVisuals._player_frame(0, "walk", 1):
+		push_error("Firing freezes the player's walking feet")
+		quit(1)
+		return
+	moving.free()
 	var camera = Camera3D.new()
 	root.add_child(camera)
 	camera.position = Vector3(0, 23, 17)

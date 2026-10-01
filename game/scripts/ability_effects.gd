@@ -14,7 +14,7 @@ const ABILITY_NAMES := {
 	"vitality": "생존력", "pickup": "자석", "flame": "화염 숙련",
 	"explosive": "폭발 숙련", "energy": "에너지 숙련",
 	"auto_orbit": "궤도 드론", "auto_shock": "전기 충격",
-	"auto_flame": "화염 고리", "auto_blade": "회전 칼날",
+	"auto_flame": "추적 화염탄", "auto_blade": "회전 칼날",
 	"auto_missile": "추적 미사일", "clone": "분신"
 }
 const COLORS := {
@@ -40,8 +40,6 @@ func show_pickup(kind: String, id: String, weapon_name: String = "") -> void:
 
 func show_upgrade(id: String, level: int) -> void:
 	_emit("%s Lv.%d" % [ABILITY_NAMES.get(id, id), level], COLORS.get(id, Color.WHITE), id, true)
-	if id.begins_with("auto_"):
-		_show_aura(id, INF)
 
 func show_item_use(id: String, expires_at: float = 0.0) -> void:
 	_emit("%s 사용" % ITEM_NAMES.get(id, id), COLORS.get(id, Color.WHITE), id, false)
@@ -60,7 +58,8 @@ func _emit(caption: String, color: Color, id: String, upgrade: bool) -> void:
 	var ring_tween = create_tween()
 	ring_tween.tween_property(ring, "scale", Vector3.ONE * 1.25, 0.65)
 	ring_tween.parallel().tween_property(ring, "modulate:a", 0.0, 0.65)
-	_make_motif(effect, id, color, upgrade)
+	if not id.begins_with("auto_"):
+		_make_motif(effect, id, color, upgrade)
 	var label = Label3D.new()
 	label.text = caption
 	label.font = FONT
@@ -75,6 +74,21 @@ func _emit(caption: String, color: Color, id: String, upgrade: bool) -> void:
 	text_tween.tween_property(label, "position:y", 3.25, EFFECT_TIME)
 	text_tween.parallel().tween_property(label, "transparency", 1.0, EFFECT_TIME).set_delay(0.8)
 	get_tree().create_timer(EFFECT_TIME).timeout.connect(effect.queue_free)
+
+func show_attack_range(id: String, radius: float) -> void:
+	# A single faint outline previews acquisition range; actual hit art belongs
+	# to the projectile impact at the enemy, never an orbiting inventory icon.
+	var outline = Visuals.make_ability_sprite("activation", radius * 2.0)
+	add_child(outline)
+	outline.position = Vector3(0, -0.76, 0)
+	outline.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	outline.rotation.x = -PI / 2.0
+	outline.modulate = COLORS.get(id, Color.WHITE)
+	outline.modulate.a = 0.18
+	outline.set_meta("attack_range", radius)
+	var tween = create_tween()
+	tween.tween_property(outline, "modulate:a", 0.0, 0.9)
+	tween.tween_callback(outline.queue_free)
 
 func _make_motif(parent: Node3D, id: String, _color: Color, upgrade: bool) -> void:
 	var aliases = {"heal": "vitality", "speed": "move_speed", "armor": "vitality", "bomb": "explosive", "invuln": "energy", "xp_burst": "energy"}

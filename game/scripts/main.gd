@@ -9,6 +9,7 @@ const AccountServiceScript = preload("res://scripts/account_service.gd")
 const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
+const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
 
 const ROUND_DURATION := 30.0
 const MAX_ROUND := 100
@@ -120,6 +121,8 @@ var character_panel: PanelContainer
 var character_box: VBoxContainer
 var touch_controls: Control
 var touch_weapon_buttons: Array[Button] = []
+var weapon_slot_normal: StyleBoxFlat
+var weapon_slot_selected: StyleBoxFlat
 var touch_left_zone: PanelContainer
 var touch_hit_zone: Control
 var hud_top_left: VBoxContainer
@@ -847,12 +850,23 @@ func _build_touch_controls(hud: Control) -> void:
 	stick_dot.add_theme_stylebox_override("panel", dot_style)
 	touch_left_zone.add_child(stick_dot)
 
-	var button_names = ["1 기본", "2 특수", "3 특수", "R 재장전"]
+	weapon_slot_normal = StyleBoxFlat.new()
+	weapon_slot_normal.bg_color = Color(0.035, 0.05, 0.09, 0.82)
+	weapon_slot_normal.set_corner_radius_all(8)
+	weapon_slot_selected = weapon_slot_normal.duplicate()
+	weapon_slot_selected.bg_color = Color(0.04, 0.20, 0.25, 0.9)
+	weapon_slot_selected.border_color = Color(0.38, 0.94, 1.0)
+	weapon_slot_selected.set_border_width_all(2)
+	var button_names = ["권총\n12발 · ∞", "빈 슬롯\n습득 대기", "빈 슬롯\n습득 대기", "재장전"]
 	for i in range(button_names.size()):
 		var b = Button.new()
 		b.text = button_names[i]
 		b.position = Vector2(430 + i * 108, 638)
-		b.size = Vector2(100, 54)
+		b.size = Vector2(160 if i < 3 else 100, 76)
+		b.add_theme_font_size_override("font_size", 20)
+		b.add_theme_stylebox_override("normal", weapon_slot_normal)
+		b.add_theme_stylebox_override("disabled", weapon_slot_normal)
+		b.add_theme_color_override("font_disabled_color", Color(0.59, 0.65, 0.72))
 		b.mouse_filter = Control.MOUSE_FILTER_STOP
 		if i < 3:
 			b.pressed.connect(_touch_select_weapon.bind(i))
@@ -915,12 +929,14 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	touch_left_zone.scale = Vector2.ONE * (stick_size / 280.0)
 	touch_left_zone.position = Vector2.ONE * ((hit_size - stick_size) * 0.5)
 	var weapon_scale = 1.85 if mobile and portrait else (1.25 if mobile else 1.0)
-	var row_width = (4.0 * 100.0 + 3.0 * 8.0) * weapon_scale
-	var row_y = view_size.y - hit_size - 54.0 * weapon_scale - 58.0
+	var row_width = (3.0 * 160.0 + 100.0 + 3.0 * 8.0) * weapon_scale
+	var stick_center_y = touch_hit_zone.position.y + hit_size * 0.5
+	var row_y = stick_center_y - stick_size * 0.5 - 76.0 * weapon_scale - 20.0
 	for i in range(touch_weapon_buttons.size()):
 		var button = touch_weapon_buttons[i]
+		button.add_theme_font_size_override("font_size", 24)
 		button.scale = Vector2.ONE * weapon_scale
-		button.position = Vector2((view_size.x - row_width) * 0.5 + i * 108.0 * weapon_scale, row_y)
+		button.position = Vector2((view_size.x - row_width) * 0.5 + i * 168.0 * weapon_scale, row_y)
 
 func _make_touch_zone(text: String, position: Vector2, size: Vector2) -> PanelContainer:
 	var panel = PanelContainer.new()
@@ -1306,6 +1322,9 @@ func find_nearest_zombie(origin: Vector3, max_distance: float) -> Node3D:
 			best_distance = distance
 	return nearest
 
+func get_auto_attack_range(id: String, lv: int) -> float:
+	return 5.0 + lv * 0.9 + (6.0 if id == "auto_missile" else 0.0)
+
 func _update_auto_attacks(delta: float) -> void:
 	auto_attack_elapsed += delta
 	if auto_attack_elapsed < 0.52 or player == null:
@@ -1316,33 +1335,46 @@ func _update_auto_attacks(delta: float) -> void:
 		var lv = int(upgrades.get(id, 0))
 		if lv <= 0:
 			continue
-		var radius = 5.0 + lv * 0.9
-		if id == "auto_missile": radius += 6.0
-		var target = find_nearest_zombie(origin, radius)
+		var target = find_nearest_zombie(origin, get_auto_attack_range(id, lv))
 		if target == null:
 			continue
-		var hit: Vector3 = target.global_position + Vector3.UP * 0.7
 		var damage = (9.0 + 6.0 * lv) * get_player_damage_multiplier()
-		match id:
-			"auto_orbit":
-				_make_tracer(origin + Vector3.UP * 1.3, hit, Color(0.3, 0.85, 1.0), 45.0, 0.09)
-			"auto_shock":
-				_make_beam(origin + Vector3.UP, hit, Color(1.0, 0.93, 0.19), 0.16, 0.12)
-			"auto_flame":
-				_make_burst(hit, Color(1.0, 0.32, 0.03), 1.1 + lv * 0.1)
-			"auto_blade":
-				_make_burst(hit, Color(0.86, 0.96, 1.0), 0.85 + lv * 0.13)
-			"auto_missile":
-				_make_tracer(origin + Vector3.UP, hit, Color(1.0, 0.58, 0.13), 27.0, 0.2)
-				_explosion(hit, 1.0 + lv * 0.25, damage * 0.6)
-		target.take_damage(damage)
+		var radius = 1.0 + lv * 0.25 if id == "auto_missile" else 0.0
+		_launch_ability_attack(id, origin + Vector3.UP * 0.9, target, damage, radius)
 	for clone in clone_visuals:
 		if not is_instance_valid(clone):
 			continue
 		var enemy = find_nearest_zombie(clone.global_position, 16.0)
 		if enemy != null:
-			var end = _fire_line(clone.global_position + Vector3.UP * 0.6, (enemy.global_position - clone.global_position).normalized(), 16.0, 0.35, 6.0 * get_player_damage_multiplier(), false)
-			_make_tracer(clone.global_position + Vector3.UP * 0.6, end, Color(0.85, 0.6, 1.0), 38.0, 0.07)
+			_launch_ability_attack("clone", clone.global_position + Vector3.UP * 0.6, enemy, 6.0 * get_player_damage_multiplier(), 0.0)
+
+func _launch_ability_attack(id: String, start: Vector3, enemy: Node3D, damage: float, radius: float) -> Node3D:
+	var projectile = AbilityProjectile.new()
+	add_child(projectile)
+	projectile.setup(self, id, start, enemy, damage, radius)
+	return projectile
+
+func resolve_ability_impact(id: String, point: Vector3, enemy: Node3D, damage: float, radius: float, hit_target: bool) -> void:
+	# Deal damage when the illustration reaches its target, using the same
+	# world position for the visible impact and any area damage.
+	if id == "auto_missile":
+		for z in get_tree().get_nodes_in_group("zombie"):
+			if is_instance_valid(z) and not z.dead:
+				var dist: float = z.global_position.distance_to(point)
+				if dist <= radius:
+					z.take_damage(damage * 0.6 * lerpf(1.0, 0.45, dist / radius))
+	if hit_target and is_instance_valid(enemy) and not enemy.dead:
+		enemy.take_damage(damage)
+	var effect = SpriteVisuals.make_attack_sprite(id, true, radius * 2.0 if radius > 0.0 else (1.8 if id == "auto_flame" else 1.3))
+	add_child(effect)
+	effect.global_position = point
+	effect.set_meta("ability_id", id)
+	effect.set_meta("impact_position", point)
+	if id == "clone": effect.modulate = Color(0.78, 0.55, 1.0)
+	var tween = create_tween()
+	tween.tween_property(effect, "scale", Vector3.ONE * 1.15, 0.16)
+	tween.parallel().tween_property(effect, "modulate:a", 0.0, 0.26)
+	tween.tween_callback(effect.queue_free)
 
 func _rebuild_clones() -> void:
 	for old in clone_visuals:
@@ -1575,7 +1607,7 @@ func _upgrade_option_text(id: String) -> String:
 		"damage":"화력", "fire_rate":"연사", "move_speed":"기동",
 		"vitality":"생존력", "pickup":"자석", "flame":"화염 숙련",
 		"explosive":"폭발 숙련", "energy":"에너지 숙련",
-		"auto_orbit":"궤도 드론", "auto_shock":"전기 충격", "auto_flame":"화염 고리",
+		"auto_orbit":"궤도 드론", "auto_shock":"전기 충격", "auto_flame":"추적 화염탄",
 		"auto_blade":"회전 칼날", "auto_missile":"추적 미사일", "clone":"분신"
 	}
 	var suffix = " I"
@@ -1590,9 +1622,9 @@ func _upgrade_description(id: String, next_level: int) -> String:
 	match id:
 		"clone": return "분신 +1명 (플레이어 포함 최대 3명)"
 		"auto_orbit": return "주변 적 자동 추적 사격 · 최대 5레벨"
-		"auto_shock": return "가까운 적에게 자동 전기 충격 · 최대 5레벨"
-		"auto_flame": return "주변 적에게 자동 화염 피해 · 최대 5레벨"
-		"auto_blade": return "회전 칼날로 넓은 범위 공격 · 최대 5레벨"
+		"auto_shock": return "적에게 날아가는 전기탄 · 최대 5레벨"
+		"auto_flame": return "적을 추적하는 화염탄 · 최대 5레벨"
+		"auto_blade": return "적에게 회전 칼날 발사 · 최대 5레벨"
 		"auto_missile": return "적을 찾아 폭발하는 미사일 · 최대 5레벨"
 		"damage": return "모든 무기 피해 증가" if not evolved else "오버차지: 큰 피해 증가 + 돌격소총 관통"
 		"fire_rate": return "모든 무기 연사속도 증가" if not evolved else "오버드라이브: 추가 연사 증가"
@@ -1614,6 +1646,9 @@ func _on_upgrade_selected(index: int) -> void:
 	_save_checkpoint(round_number)
 	if ability_effects != null:
 		ability_effects.show_upgrade(id, int(upgrades[id]))
+		if id.begins_with("auto_"):
+			ability_effects.show_attack_range(id, get_auto_attack_range(id, int(upgrades[id])))
+			auto_attack_elapsed = 0.52
 	pending_levelups = max(pending_levelups - 1, 0)
 	upgrade_panel.hide()
 	gameplay_paused = false
@@ -1930,24 +1965,34 @@ func _update_hud() -> void:
 			ammo = "무제한"
 		else:
 			ammo = "%d" % player.current_special_ammo()
-		var slot1 = "-"
-		var slot2 = "-"
-		if player.special_slots.size() >= 1:
-			var a: Dictionary = player.special_slots[0]
-			slot1 = "%s(%d)" % [str(get_weapon_data(str(a["id"])).get("name",a["id"])), int(a["ammo"])]
-		if player.special_slots.size() >= 2:
-			var b: Dictionary = player.special_slots[1]
-			slot2 = "%s(%d)" % [str(get_weapon_data(str(b["id"])).get("name",b["id"])), int(b["ammo"])]
 		weapon_label.text = "%s · %s" % [name, ammo]
-		if touch_weapon_buttons.size() >= 4:
-			touch_weapon_buttons[0].disabled = false
-			touch_weapon_buttons[1].disabled = player.special_slots.size() < 1
-			touch_weapon_buttons[2].disabled = player.special_slots.size() < 2
-			touch_weapon_buttons[3].disabled = player.selected_slot != 0 or player.reloading or player.base_mag >= player.base_mag_max
+		_update_weapon_buttons()
 	else:
 		hp_label.text = ""
 		xp_label.text = ""
 		weapon_label.text = ""
+
+
+func _update_weapon_buttons() -> void:
+	if player == null or touch_weapon_buttons.size() < 4:
+		return
+	for i in range(3):
+		var button: Button = touch_weapon_buttons[i]
+		var id = player.base_weapon_id if i == 0 else ""
+		var ammo_text = "무제한"
+		if i == 0 and id == "pistol":
+			ammo_text = "재장전 중" if player.reloading else "%d발 · ∞" % player.base_mag
+		elif i > 0 and player.special_slots.size() >= i:
+			var slot: Dictionary = player.special_slots[i - 1]
+			id = str(slot["id"])
+			ammo_text = "%d발" % int(slot["ammo"])
+		button.text = "빈 슬롯\n습득 대기" if id.is_empty() else "%s\n%s" % [str(get_weapon_data(id).get("name", id)), ammo_text]
+		button.disabled = id.is_empty()
+		var selected = player.selected_slot == i and not id.is_empty()
+		button.add_theme_stylebox_override("normal", weapon_slot_selected if selected else weapon_slot_normal)
+		button.add_theme_color_override("font_color", Color(0.78, 1.0, 1.0) if selected else Color.WHITE)
+	touch_weapon_buttons[3].text = "재장전 중" if player.reloading else "재장전"
+	touch_weapon_buttons[3].disabled = player.selected_slot != 0 or player.base_weapon_id != "pistol" or player.reloading or player.base_mag >= player.base_mag_max
 
 func _clear_zombies_and_pickups() -> void:
 	for z in get_tree().get_nodes_in_group("zombie"):
@@ -1958,6 +2003,8 @@ func _clear_zombies_and_pickups() -> void:
 			child.queue_free()
 
 func _clear_dynamic_entities() -> void:
+	for projectile in get_tree().get_nodes_in_group("ability_projectile"):
+		projectile.queue_free()
 	for clone in clone_visuals:
 		if is_instance_valid(clone): clone.queue_free()
 	clone_visuals.clear()

@@ -38,6 +38,8 @@ jobs:
         run: godot --headless --path game --script res://tests/sprite_visuals_test.gd
       - name: Check illustrated abilities and reference effects
         run: godot --headless --path game --script res://tests/ability_effects_test.gd
+      - name: Check travelling ability attacks and cover
+        run: godot --headless --path game --script res://tests/ability_combat_test.gd
       - name: Export Web game
         run: |
           mkdir -p build/web
