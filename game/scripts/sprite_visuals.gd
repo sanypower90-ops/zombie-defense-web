@@ -43,7 +43,7 @@ static func _frame(source: Texture2D, rect: Rect2, character: bool = false) -> I
 	if not _atlas_cache.has(key):
 		if not _source_images.has(source.resource_path):
 			var original = source.get_image()
-			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5, MELEE, MELEE_BACK, GRIPS_A, GRIPS_B, MELEE_FX, PLAYER_V8, ATTACKS_V8, STICK_V8]:
+			if source in [FLIGHT, ZOMBIES_V5, HEAVY_V5, PROPS_V5, MELEE, MELEE_BACK, GRIPS_A, GRIPS_B, MELEE_FX, PLAYER_V8, ATTACKS_V8, STICK_V8, FULL_BODY_V10, AIR_RAID_V10]:
 				original.convert(Image.FORMAT_RGBA8)
 				var pixels = original.get_data()
 				# Barely visible alpha noise must not expand a frame's bounds.
@@ -85,7 +85,9 @@ static func player_direction(yaw: float) -> int:
 static func _sprite(pixel_size: float) -> Sprite3D:
 	var sprite = Sprite3D.new()
 	sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	# Billboard illustrations must not intersect the ground at their lower edge.
 	sprite.shaded = false
+	sprite.no_depth_test = true
 	sprite.pixel_size = pixel_size
 	sprite.position.y = 0.67
 	return sprite
@@ -209,11 +211,16 @@ static func joined_player_v10(upper: Image, direction: int, frame: int) -> Image
 		var leg = source.get_region(Rect2i(left,82,width,34))
 		leg.resize(width,34+step*(1 if side == 0 else -1),Image.INTERPOLATE_LANCZOS)
 		image.blit_rect(leg,Rect2i(Vector2i.ZERO,leg.get_size()),offset+Vector2i(left,82))
-	image.blend_rect(upper,Rect2i(0,0,240,98),Vector2i.ZERO)
+	# Match torso and leg proportions instead of retaining the oversized old torso.
+	var torso = upper.get_region(Rect2i(0,0,240,98))
+	torso.resize(192,78,Image.INTERPOLATE_LANCZOS)
+	image.blend_rect(torso,Rect2i(Vector2i.ZERO,torso.get_size()),Vector2i(24,20))
 	return image
 
 static func air_raid_texture(index: int) -> ImageTexture:
-	return _frame(AIR_RAID_V10,Rect2((index%2)*AIR_RAID_V10.get_width()/2.0,(index/2)*AIR_RAID_V10.get_height()/2.0,AIR_RAID_V10.get_width()/2.0,AIR_RAID_V10.get_height()/2.0))
+	# The illustrated sheet is not an exact 2 x 2 atlas: the plane nose crosses x=768.
+	var regions = [Rect2(0,0,820,512),Rect2(880,80,656,420),Rect2(150,520,570,504),Rect2(950,470,470,554)]
+	return _frame(AIR_RAID_V10,regions[clampi(index,0,3)])
 
 static func walking_melee(body: ImageTexture, direction: int, phase: float) -> ImageTexture:
 	var frame = int(floor(phase / TAU * 4))
@@ -388,6 +395,7 @@ static func make_pickup(kind: String, payload: String) -> Sprite3D:
 	sprite.name = "PickupSprite"
 	sprite.position.y = 0.32
 	sprite.texture = air_raid_texture(2) if payload == "air_raid" else _frame(ITEMS, _item_rect(kind, payload))
+	if payload == "air_raid": sprite.pixel_size *= .6
 	return sprite
 
 static func make_weapon_icon(weapon_id: String) -> Sprite3D:
@@ -416,7 +424,11 @@ static func prop_texture(kind: String) -> ImageTexture:
 static func isolated_grid_texture(source: Texture2D, index: int) -> ImageTexture:
 	var key = "%s:isolated:%d" % [source.resource_path, index]
 	if not _atlas_cache.has(key):
-		var image = _frame(source, _grid_region(source, index)).get_image()
+		var region = _grid_region(source,index)
+		if source == ATTACKS_V8:
+			# Glow tips extend beyond some generated grid cells.
+			region = region.grow(16).intersection(Rect2(Vector2.ZERO,source.get_size()))
+		var image = _frame(source,region).get_image()
 		image = image.get_region(image.get_used_rect())
 		_atlas_cache[key] = ImageTexture.create_from_image(image)
 	return _atlas_cache[key]

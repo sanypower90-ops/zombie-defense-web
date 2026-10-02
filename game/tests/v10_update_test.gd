@@ -17,7 +17,7 @@ func run_checks() -> void:
 	game.player.apply_item("heal")
 	game.player.apply_item("armor")
 	if not check(game.player.hp == 55 and game.player.energy_guard == 5,"Each recovery item must restore only five"): return
-	if not check(game.get_active_zombie_cap(1)==32 and game.get_active_zombie_cap(100)==72 and game.get_round_spawn_target(2)>game.get_round_spawn_target(1) and game.get_zombie_hp_multiplier(100)>game.get_zombie_hp_multiplier(50),"Enemy count must grow then cap; health must keep growing"): return
+	if not check(game.get_active_zombie_cap(1)==32 and game.get_active_zombie_cap(100)==100 and game.get_round_spawn_target(2)>game.get_round_spawn_target(1) and game.get_zombie_hp_multiplier(100)>game.get_zombie_hp_multiplier(50),"Enemy count must grow then cap; health must keep growing"): return
 	var data = game.get_weapon_data("laser")
 	if not check(data.ammo_max==5 and data.fire_rate==.55 and game._laser_boss_damage(1500)<1500,"Laser must have five shots, slow rate and averaged boss damage"):return
 	var sum = 0.0

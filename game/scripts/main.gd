@@ -72,6 +72,9 @@ var boss_elapsed := 0.0
 var boss_hud: VBoxContainer
 var boss_health_label: Label
 var boss_health_bar: ProgressBar
+var round_voice: AudioStreamPlayer
+var round_voice_streams: Array[AudioStream] = []
+var last_round_voice = -1
 var hurt_voice: AudioStreamPlayer
 
 var score = 0
@@ -223,6 +226,13 @@ func _toggle_music() -> void:
 		boss_music.stop()
 
 func _build_sfx() -> void:
+	round_voice = AudioStreamPlayer.new()
+	round_voice.volume_db = -5.0
+	add_child(round_voice)
+	for i in range(1,5):
+		var clip = load("res://assets/audio/round_%02d.mp3" % i) as AudioStreamMP3
+		clip.loop = false
+		round_voice_streams.append(clip)
 	for sound_id in ["pistol", "sword", "fist", "shotgun", "smg", "rifle", "lmg", "grenade", "flamethrower", "sniper", "rocket", "laser", "zombie", "player_hurt", "boss_warning", "boss_launch", "round_change", "electric_trap", "explosion", "air_raid"]:
 		sfx_streams[sound_id] = load("res://assets/audio/sfx/%s.wav" % sound_id)
 	for i in range(24):
@@ -234,6 +244,16 @@ func _build_sfx() -> void:
 	hurt_voice.stream = sfx_streams["player_hurt"]
 	hurt_voice.volume_db = -5.0
 	add_child(hurt_voice)
+
+func _play_round_transition() -> void:
+	if round_voice_streams.is_empty(): return
+	# A dedicated voice prevents gunfire from interrupting the round announcement.
+	var choices = range(round_voice_streams.size())
+	if choices.size() > 1: choices.erase(last_round_voice)
+	last_round_voice = choices.pick_random()
+	round_voice.stop()
+	round_voice.stream = round_voice_streams[last_round_voice]
+	round_voice.play()
 
 func _play_sfx(sound_id: String, pitch: float = 1.0) -> void:
 	if sfx_players.is_empty() or not sfx_streams.has(sound_id):
@@ -1166,6 +1186,7 @@ func _make_center_panel(parent: Control, panel_size: Vector2) -> PanelContainer:
 	return panel
 
 func _show_main_menu() -> void:
+	if round_voice != null: round_voice.stop()
 	_pending_rank_check = false
 	game_active = false
 	game_menu_button.hide()
@@ -1273,7 +1294,7 @@ func _start_round() -> void:
 	if is_boss_round():
 		_spawn_round_boss()
 	_switch_music(true)
-	if round_number > 1: _play_sfx("round_change")
+	if round_number > 1: _play_round_transition()
 	_update_hud()
 
 func _finish_round() -> void:
@@ -1338,7 +1359,7 @@ func get_round_spawn_target(r: int) -> int:
 	return 150 + 10 * maxi(0,r-1)
 
 func get_active_zombie_cap(r: int) -> int:
-	return mini(32 + 4 * maxi(0,r-1),72)
+	return mini(32 + 4 * maxi(0,r-1),100)
 
 func get_zombie_hp_multiplier(r: int) -> float:
 	return 1.0 + float(maxi(0,r-1)) * .06
