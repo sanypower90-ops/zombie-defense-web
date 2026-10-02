@@ -436,8 +436,8 @@ func _build_world() -> void:
 
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 18.0
-	camera.position = Vector3(18.0,15.0,18.0)
+	camera.size = 31.0
+	camera.position = Vector3(17.0,23.0,17.0)
 	camera.current = true
 	add_child(camera)
 	camera.look_at(Vector3.ZERO, Vector3.UP)
@@ -2360,7 +2360,7 @@ func _update_camera() -> void:
 		return
 	# Use the sprite's visual center as the camera target, including its height.
 	var center = player.global_position + Vector3.UP * .67
-	camera.global_position = center + Vector3(18.0,15.0,18.0)
+	camera.global_position = center + Vector3(17.0,23.0,17.0)
 
 func _update_hud() -> void:
 	if round_label == null:
