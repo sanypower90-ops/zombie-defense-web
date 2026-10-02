@@ -52,7 +52,7 @@ func run_checks() -> void:
 	if not check(player.move_touch_id==-1,"Toggle touches must never engage the movement stick"):return
 	game._update_ground_shadows()
 	if not check(game.ground_shadows.multimesh.visible_instance_count>=2 and game.fire_lights.size()==4,"Ground shadows and four fire barrel glows must exist"):return
-	if not check(absf(game.camera.position.x-game.player.position.x)>16 and Game.GROUND_TEXTURE.resource_path.contains("25d"),"Isometric camera and illustrated ruined ground must be active"):return
+	if not check(is_equal_approx(game.camera.size,18.0) and absf(game.camera.rotation.x)<deg_to_rad(33) and absf(game.camera.position.x-game.player.position.x)>16 and Game.GROUND_TEXTURE.resource_path.contains("25d"),"Isometric camera and illustrated ruined ground must be active"):return
 	for i in range(16):
 		if not check(Visuals.art_region_25d("props",i).size.x>0 and Visuals.art_region_25d("zombies",i).size.y>0,"Every new sprite must have measured bounds"):return
 	game.queue_free()
