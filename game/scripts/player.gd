@@ -30,6 +30,7 @@ var move_touch_origin = Vector2.ZERO
 var touch_move_vector = Vector2.ZERO
 var touch_firing = false
 var touch_mode = false
+var auto_target: Node3D
 var aim_direction = Vector3.FORWARD
 
 var speed_buff_until = 0.0
@@ -91,7 +92,7 @@ func _physics_process(delta: float) -> void:
 	if not game.can_player_act():
 		velocity = Vector3.ZERO
 		VisualFactory.animate_player(visual_root, walk_phase, 0.0, 0.0)
-		SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, 0.0, recoil_left, false, current_weapon_id(), melee_strike)
+		SpriteVisuals.update_player(sprite_visual, rotation.y-game.camera.rotation.y, walk_phase, 0.0, recoil_left, false, current_weapon_id(), melee_strike)
 		return
 	_update_reload(delta)
 	_handle_selection_keys()
@@ -110,7 +111,7 @@ func _physics_process(delta: float) -> void:
 		walk_phase += velocity.length() * delta * TAU / 4.4
 	recoil_left = max(recoil_left - delta * (4.5 if weapon_id == "sword" else 6.0), 0.0)
 	# Hidden fallback meshes do not need per-frame bone updates.
-	SpriteVisuals.update_player(sprite_visual, rotation.y, walk_phase, motion, recoil_left, false, weapon_id, melee_strike)
+	SpriteVisuals.update_player(sprite_visual, rotation.y-game.camera.rotation.y, walk_phase, motion, recoil_left, false, weapon_id, melee_strike)
 
 func _input(event: InputEvent) -> void:
 	# Touch release is processed even while paused so a finger never remains stuck.
@@ -151,6 +152,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _begin_touch(index: int, position: Vector2) -> void:
 	if game.touch_hit_zone == null or not game.touch_hit_zone.visible or not game.touch_hit_zone.get_global_rect().has_point(position):
 		return
+	if game.auto_attack_panel != null and game.auto_attack_panel.get_global_rect().has_point(position): return
 	for button in game.touch_weapon_buttons + game.item_buttons.values():
 		if button.visible and button.get_global_rect().has_point(position):
 			return
@@ -216,6 +218,17 @@ func _screen_to_ground_direction(input_vector: Vector2) -> Vector3:
 	return right.normalized() * input_vector.x - forward.normalized() * input_vector.y
 
 func _aim_at_pointer() -> void:
+	if game.auto_attack_enabled:
+		var reach = float(game.get_weapon_data(current_weapon_id()).get("range",20.0))
+		if not is_instance_valid(auto_target) or auto_target.dead or global_position.distance_to(auto_target.global_position)>reach or not game._line_of_sight(global_position+Vector3.UP*.65,auto_target.global_position):
+			auto_target = game.find_nearest_zombie(global_position,reach)
+		if is_instance_valid(auto_target):
+			var direction = auto_target.global_position-global_position
+			direction.y = 0
+			if direction.length_squared()>.001:
+				aim_direction = direction.normalized()
+				look_at(global_position+aim_direction,Vector3.UP)
+		return
 	# The movement stick also sets the firing direction.
 	if move_touch_id >= 0:
 		var world_dir = _screen_to_ground_direction(touch_move_vector)
@@ -264,8 +277,11 @@ func _handle_selection_keys() -> void:
 	if Input.is_physical_key_pressed(KEY_1): base_weapon_id = "pistol"
 
 func _handle_fire() -> void:
-	var mouse_fire = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-	if not mouse_fire and not touch_firing:
+	var mouse_fire = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not game._is_mobile_layout()
+	if game.auto_attack_panel.get_global_rect().has_point(get_viewport().get_mouse_position()): mouse_fire = false
+	if game.auto_attack_enabled:
+		if not is_instance_valid(auto_target) or auto_target.dead: return
+	elif not mouse_fire and not touch_firing:
 		return
 	if reloading:
 		return

@@ -261,6 +261,8 @@ func _animate_visual(delta: float) -> void:
 	var facing := velocity
 	if game != null and game.player != null:
 		facing = game.player.global_position - global_position
+	if game.camera != null:
+		facing = Basis(Vector3.UP,-game.camera.rotation.y) * facing
 	SpriteVisuals.update_zombie(sprite_visual, kind, facing, walk_phase, motion, attack_left, hurt_left)
 
 func take_damage(amount: float) -> void:

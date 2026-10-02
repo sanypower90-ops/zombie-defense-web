@@ -10,7 +10,7 @@ const AbilityEffectsScript = preload("res://scripts/ability_effects.gd")
 const VisualFactory = preload("res://scripts/visual_factory.gd")
 const SpriteVisuals = preload("res://scripts/sprite_visuals.gd")
 const MeleeEffect = preload("res://scripts/melee_effect.gd")
-const GROUND_TEXTURE = preload("res://assets/sprites/ground_v7.png")
+const GROUND_TEXTURE = preload("res://assets/sprites/ground_25d_v12.png")
 const ShockTrap = preload("res://scripts/shock_trap.gd")
 const AbilityProjectile = preload("res://scripts/ability_projectile.gd")
 const AirRaid = preload("res://scripts/air_raid.gd")
@@ -148,6 +148,14 @@ var art_title: Label
 var art_image: TextureRect
 var character_panel: PanelContainer
 var character_box: VBoxContainer
+var hp_bar: ProgressBar
+var guard_bar: ProgressBar
+var hud_backplate: Panel
+var auto_attack_enabled = false
+var auto_attack_panel: VBoxContainer
+var auto_attack_button: Button
+var ground_shadows: MultiMeshInstance3D
+var fire_lights: Array[OmniLight3D] = []
 var touch_controls: Control
 var touch_weapon_buttons: Array[Button] = []
 var weapon_slot_normal: StyleBoxFlat
@@ -338,6 +346,9 @@ func _process(delta: float) -> void:
 	if hud_elapsed >= .1:
 		hud_elapsed = 0.0
 		_update_hud()
+		_update_ground_shadows()
+	for i in range(fire_lights.size()):
+		fire_lights[i].light_energy = 1.35 + .15*sin(Time.get_ticks_msec()*.006+i*1.7)
 
 func get_enemies() -> Array:
 	var frame = Engine.get_physics_frames()
@@ -356,14 +367,14 @@ func can_player_act() -> bool:
 func _build_world() -> void:
 	var light = DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-58.0, -28.0, 0.0)
-	light.light_color = Color(0.74, 0.73, 1.0)
+	light.light_color = Color(1.0, .86, .70)
 	light.light_energy = 0.85
 	light.shadow_enabled = true
 	add_child(light)
 
 	var fill = DirectionalLight3D.new()
 	fill.rotation_degrees = Vector3(-50.0, 145.0, 0.0)
-	fill.light_color = Color(0.35, 0.88, 1.0)
+	fill.light_color = Color(.78,.75,.72)
 	fill.light_energy = 0.46
 	add_child(fill)
 
@@ -376,23 +387,39 @@ func _build_world() -> void:
 	ground_mesh.mesh = plane
 	var ground_mat = StandardMaterial3D.new()
 	ground_mesh.name = "IllustratedGround"
-	ground_mat.albedo_color = Color(.8,.85,.95)
+	ground_mat.albedo_color = Color(.92,.88,.83)
+	ground_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ground_mat.albedo_texture = GROUND_TEXTURE
 	ground_mat.texture_repeat = true
-	ground_mat.uv1_scale = Vector3(10,10,1)
+	ground_mat.uv1_scale = Vector3(8,8,1)
 	ground_mat.roughness = 0.95
 	ground_mesh.material_override = ground_mat
 	ground.add_child(ground_mesh)
 	add_child(ground)
 
-	# Asphalt strip and lane markings follow the supplied top-down road reference.
-	var road = VisualFactory.box(self, Vector3(8.0, 0.012, 0), Vector3(14.0, 0.02, 76.0), Color(.65,.7,.8))
-	road.material_override.albedo_texture = GROUND_TEXTURE
-	road.material_override.uv1_scale = Vector3(2,12,1)
-	for z in range(-36, 38, 6):
-		VisualFactory.box(self, Vector3(8.0, 0.031, float(z)), Vector3(0.16, 0.025, 2.6), Color(.46,.52,.56))
-	VisualFactory.box(self, Vector3(1.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(.38,.4,.45))
-	VisualFactory.box(self, Vector3(15.0, 0.035, 0), Vector3(0.16, 0.05, 76.0), Color(.38,.4,.45))
+	_build_ground_shadows()
+	for position in [Vector3(-7,.9,-5),Vector3(8,.9,7),Vector3(-18,.9,12),Vector3(18,.9,-17)]:
+		_make_prop("fire_barrel",position,Vector3(1.5,2.8,1.5),Color(.4,.25,.12))
+		var glow = OmniLight3D.new()
+		glow.position = position + Vector3.UP
+		glow.light_color = Color(1,.38,.06)
+		glow.omni_range = 6
+		glow.light_energy = 1.5
+		glow.shadow_enabled = false
+		add_child(glow)
+		fire_lights.append(glow)
+		var pool = MeshInstance3D.new()
+		var pool_mesh = PlaneMesh.new()
+		pool_mesh.size = Vector2(6,6)
+		pool.mesh = pool_mesh
+		var pool_shader = Shader.new()
+		pool_shader.code = "shader_type spatial; render_mode unshaded, blend_add, depth_draw_never, cull_disabled; void fragment(){float d=length((UV-.5)*2.);ALBEDO=vec3(1.,.24,.025);ALPHA=(1.-smoothstep(.1,1.,d))*.24*(.9+.1*sin(TIME*5.));}"
+		var pool_material = ShaderMaterial.new()
+		pool_material.shader = pool_shader
+		pool.material_override = pool_material
+		pool.position = Vector3(position.x,.03,position.z)
+		pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(pool)
 
 	_make_prop("car", Vector3(-14, 1.0, -8), Vector3(5.5, 2.0, 2.3), Color(0.13,0.23,0.32))
 	_make_prop("barrier", Vector3(13, 1.1, 7), Vector3(6.0, 2.2, 2.5), Color(0.42,0.42,0.38))
@@ -410,7 +437,7 @@ func _build_world() -> void:
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = 31.0
-	camera.position = Vector3(0.0, 23.0, 17.0)
+	camera.position = Vector3(17.0,23.0,17.0)
 	camera.current = true
 	add_child(camera)
 	camera.look_at(Vector3.ZERO, Vector3.UP)
@@ -430,6 +457,42 @@ func _make_prop(kind: String, pos: Vector3, size: Vector3, color: Color) -> void
 	collision.shape = shape
 	body.add_child(collision)
 	add_child(body)
+
+func _build_ground_shadows() -> void:
+	ground_shadows = MultiMeshInstance3D.new()
+	ground_shadows.name = "BatchedGroundShadows"
+	var instances = MultiMesh.new()
+	instances.transform_format = MultiMesh.TRANSFORM_3D
+	instances.instance_count = 128
+	instances.visible_instance_count = 0
+	var plane = PlaneMesh.new()
+	plane.size = Vector2(1.4,.85)
+	instances.mesh = plane
+	ground_shadows.multimesh = instances
+	var shader = Shader.new()
+	shader.code = "shader_type spatial; render_mode unshaded, blend_mix, depth_draw_never, cull_disabled; void fragment(){float d=length((UV-.5)*2.);ALBEDO=vec3(.035,.025,.02);ALPHA=(1.-smoothstep(.25,1.,d))*.45;}"
+	var material = ShaderMaterial.new()
+	material.shader = shader
+	ground_shadows.material_override = material
+	ground_shadows.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ground_shadows)
+
+func _update_ground_shadows() -> void:
+	if ground_shadows == null: return
+	var entities = get_enemies().duplicate() if game_active else []
+	if is_instance_valid(player) and game_active: entities.append(player)
+	for clone in clone_visuals:
+		if is_instance_valid(clone): entities.append(clone)
+	var index = 0
+	for entity in entities:
+		if not is_instance_valid(entity) or entity.is_queued_for_deletion(): continue
+		if index >= 128: break
+		var shadow_size = 1.0
+		if entity.get("kind") in ["boss","final_boss","brute"]: shadow_size = 1.7
+		var transform = Transform3D(Basis.IDENTITY.scaled(Vector3(shadow_size,1,shadow_size)),Vector3(entity.global_position.x,.045,entity.global_position.z))
+		ground_shadows.multimesh.set_instance_transform(index,transform)
+		index += 1
+	ground_shadows.multimesh.visible_instance_count = index
 
 func _build_ui() -> void:
 	var canvas = CanvasLayer.new()
@@ -462,6 +525,15 @@ func _build_ui() -> void:
 	flash_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(flash_overlay)
 
+	hud_backplate = Panel.new()
+	hud_backplate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var hud_style = StyleBoxFlat.new()
+	hud_style.bg_color = Color(.025,.02,.015,.64)
+	hud_style.border_color = Color(.5,.42,.30,.35)
+	hud_style.set_border_width_all(1)
+	hud_style.set_corner_radius_all(7)
+	hud_backplate.add_theme_stylebox_override("panel",hud_style)
+	hud.add_child(hud_backplate)
 	hud_top_left = VBoxContainer.new()
 	hud_top_left.position = Vector2(18, 16)
 	hud.add_child(hud_top_left)
@@ -474,8 +546,8 @@ func _build_ui() -> void:
 	save_label = Label.new()
 	for label in [round_label, timer_label, score_label, hp_label, xp_label, weapon_label]:
 		label.add_theme_font_size_override("font_size", 20)
-		label.add_theme_color_override("font_color", Color(0.83, 0.94, 1.0))
-		label.add_theme_color_override("font_shadow_color", Color(0.66, 0.24, 0.84, 0.85))
+		label.add_theme_color_override("font_color", Color(.98,.96,.91))
+		label.add_theme_color_override("font_shadow_color", Color(0,0,0,.85))
 		hud_top_left.add_child(label)
 	var bold_font = FontVariation.new()
 	bold_font.base_font = preload("res://assets/fonts/NotoSansKR.ttf")
@@ -491,6 +563,19 @@ func _build_ui() -> void:
 	guard_label.add_theme_color_override("font_color",Color(.4,.9,1))
 	hud_top_left.add_child(guard_label)
 	hud_top_left.move_child(guard_label,hp_label.get_index()+1)
+	hp_bar = ProgressBar.new()
+	guard_bar = ProgressBar.new()
+	for bar in [hp_bar,guard_bar]:
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(190,7)
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var fill_style = StyleBoxFlat.new()
+		fill_style.bg_color = Color(.95,.22,.15) if bar == hp_bar else Color(.20,.70,.96)
+		fill_style.set_corner_radius_all(3)
+		bar.add_theme_stylebox_override("fill",fill_style)
+		hud_top_left.add_child(bar)
+	hud_top_left.move_child(hp_bar,hp_label.get_index()+1)
+	hud_top_left.move_child(guard_bar,guard_label.get_index()+1)
 	timer_label.hide()
 	xp_label.hide()
 	xp_bar = ProgressBar.new()
@@ -498,7 +583,7 @@ func _build_ui() -> void:
 	xp_bar.custom_minimum_size = Vector2(190, 5)
 	xp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var xp_fill = StyleBoxFlat.new()
-	xp_fill.bg_color = Color(0.22, 0.78, 0.92)
+	xp_fill.bg_color = Color(.96,.63,.18)
 	xp_bar.add_theme_stylebox_override("fill", xp_fill)
 	hud_top_left.add_child(xp_bar)
 	save_label.add_theme_font_size_override("font_size", 16)
@@ -1038,9 +1123,34 @@ func _build_touch_controls(hud: Control) -> void:
 		touch_controls.add_child(b)
 		touch_weapon_buttons.append(b)
 
+	auto_attack_panel = VBoxContainer.new()
+	auto_attack_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	auto_attack_panel.add_theme_constant_override("separation",6)
+	touch_controls.add_child(auto_attack_panel)
+	auto_attack_button = Button.new()
+	auto_attack_button.toggle_mode = true
+	auto_attack_button.text = "자동공격  ON / OFF"
+	auto_attack_button.custom_minimum_size = Vector2(330,86)
+	auto_attack_button.add_theme_font_size_override("font_size",30)
+	auto_attack_button.add_theme_stylebox_override("normal",weapon_slot_normal)
+	auto_attack_button.add_theme_stylebox_override("pressed",weapon_slot_selected)
+	auto_attack_button.toggled.connect(_set_auto_attack)
+	auto_attack_panel.add_child(auto_attack_button)
+	for text in ["ON · 적 자동 조준·공격","OFF · 조이스틱 방향 공격"]:
+		var explanation = Label.new()
+		explanation.text = text
+		explanation.add_theme_font_size_override("font_size",22)
+		explanation.modulate = Color(1,1,1,.62)
+		explanation.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		auto_attack_panel.add_child(explanation)
 	# On phones/tablets the overlay is shown automatically. Desktop keeps the screen clean.
 	touch_controls.visible = game_active
 	touch_hit_zone.visible = _is_mobile_layout()
+
+func _set_auto_attack(enabled: bool) -> void:
+	auto_attack_enabled = enabled
+	auto_attack_button.text = "자동공격  ON ● / OFF" if enabled else "자동공격  ON / OFF ●"
+	if is_instance_valid(player): player.auto_target = null
 
 func _on_viewport_resized() -> void:
 	_layout_ui(get_viewport().get_visible_rect().size, _is_mobile_layout())
@@ -1054,7 +1164,7 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 		return
 	var portrait = view_size.y > view_size.x * 1.05
 	_set_responsive_fonts(menu_panel.get_parent(), 25 if mobile and portrait else (21 if mobile else 16))
-	var top_scale = 2.2 if mobile and portrait else (1.1 if mobile else 1.0)
+	var top_scale = 2.0 if mobile and portrait else (1.1 if mobile else 1.0)
 	for label in [round_label, hp_label]:
 		label.add_theme_font_size_override("font_size", 21 if mobile else 20)
 	for label in [score_label, weapon_label]:
@@ -1100,6 +1210,10 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 	menu_panel.scale = Vector2.ONE * home_scale
 	menu_panel.position = Vector2((view_size.x-menu_panel.size.x*home_scale)*.5,menu_area_top + 8.0)
 	hud_top_left.visible = game_active
+	hud_backplate.visible = game_active
+	hud_backplate.scale = hud_top_left.scale
+	hud_backplate.position = hud_top_left.position-Vector2(8,8)
+	hud_backplate.size = Vector2(250,192)
 	if touch_left_zone == null:
 		return
 	var hit_size = 410.0 if mobile and portrait else (340.0 if mobile else 280.0)
@@ -1118,6 +1232,10 @@ func _layout_ui(view_size: Vector2, mobile: bool) -> void:
 		button.add_theme_font_size_override("font_size", 24)
 		button.scale = Vector2.ONE * weapon_scale
 		button.position = Vector2((view_size.x - row_width) * 0.5 + i * 168.0 * weapon_scale, row_y)
+	var toggle_scale = minf(1.0,view_size.x/1000.0)
+	auto_attack_panel.scale = Vector2.ONE * toggle_scale
+	auto_attack_panel.position = Vector2(view_size.x*.5+stick_size*.5+24,stick_center_y-65*toggle_scale)
+	auto_attack_panel.size = Vector2(330,180)
 	var item_scale = minf(weapon_scale,(view_size.x-36.0)/582.0)
 	item_toolbar.scale = Vector2.ONE * item_scale
 	item_toolbar.position = Vector2((view_size.x-582.0*item_scale)*.5,row_y-62.0*item_scale-8.0)
@@ -1644,7 +1762,7 @@ func _update_clones() -> void:
 		var target = player.global_position + Vector3(-2.0 if i == 0 else 2.0, 0, 1.5)
 		clone.global_position = clone.global_position.lerp(target, 0.11)
 		clone.rotation.y = player.rotation.y
-		SpriteVisuals.update_player(clone.get_node("PlayerSprite"), clone.rotation.y, player.walk_phase, clamp(player.velocity.length() / max(player.base_move_speed, 0.01), 0.0, 1.0), player.recoil_left)
+		SpriteVisuals.update_player(clone.get_node("PlayerSprite"), clone.rotation.y-camera.rotation.y, player.walk_phase, clamp(player.velocity.length() / max(player.base_move_speed, 0.01), 0.0, 1.0), player.recoil_left)
 
 func _fire_line(start: Vector3, forward: Vector3, max_range: float, width: float, damage: float, penetrate: bool, weapon_id: String = "") -> Vector3:
 	var end = _obstacle_endpoint(start, start + forward * max_range)
@@ -2242,7 +2360,7 @@ func _update_camera() -> void:
 		return
 	# Use the sprite's visual center as the camera target, including its height.
 	var center = player.global_position + Vector3.UP * .67
-	camera.global_position = center + Vector3(0,23.0,17.0)
+	camera.global_position = center + Vector3(17.0,23.0,17.0)
 
 func _update_hud() -> void:
 	if round_label == null:
@@ -2260,6 +2378,10 @@ func _update_hud() -> void:
 		hp_label.text = "HP %d / %d · Lv.%d" % [int(ceil(player.hp)), int(player.max_hp), level]
 		guard_label.text = "에너지가드 %d / %d" % [int(ceil(player.energy_guard)),int(player.energy_guard_max)]
 		guard_label.visible = game_active
+		hp_bar.max_value = player.max_hp
+		hp_bar.value = maxf(0,player.hp)
+		guard_bar.max_value = player.energy_guard_max
+		guard_bar.value = maxf(0,player.energy_guard)
 		xp_bar.max_value = xp_needed
 		xp_bar.value = xp
 		xp_label.text = "LV %d · XP %d / %d" % [level, xp, xp_needed]

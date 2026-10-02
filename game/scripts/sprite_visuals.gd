@@ -2,9 +2,9 @@ extends RefCounted
 
 # Independent ImageTextures prevent Sprite3D atlas UVs from sampling neighbors.
 const FLIGHT = preload("res://assets/sprites/flight_v5.png")
-const ZOMBIES_V5 = preload("res://assets/sprites/zombies_v5.png")
+const ZOMBIES_V5 = preload("res://assets/sprites/zombies_25d_v12.png")
 const HEAVY_V5 = preload("res://assets/sprites/heavy_v5.png")
-const PROPS_V5 = preload("res://assets/sprites/props_v5.png")
+const PROPS_V5 = preload("res://assets/sprites/props_25d_v12.png")
 const GRIPS_A = preload("res://assets/sprites/grips_a_v7.png")
 const GRIPS_B = preload("res://assets/sprites/grips_b_v7.png")
 const MELEE_FX = preload("res://assets/sprites/melee_fx_v7.png")
@@ -32,6 +32,7 @@ const WEAPON_FX = preload("res://assets/sprites/weapon_fx.png")
 static var _atlas_cache: Dictionary = {}
 static var _body_v10_cache: Dictionary = {}
 static var _source_images: Dictionary = {}
+static var _regions_25d: Dictionary = {}
 static var _regions: Dictionary = {}
 static var _walk_regions: Array = []
 static var _grip_regions: Dictionary = {}
@@ -337,7 +338,7 @@ static func _zombie_frame(kind: String, direction: int, action: String, frame: i
 	var column = (2 if direction == 1 else 0) + (posmod(frame, 2) if action in ["walk", "attack"] else 0)
 	var key = "zombie-v5:%s:%d:%d" % [source.resource_path, row, column]
 	if not _atlas_cache.has(key):
-		var image = _frame(source, _grid_region(source, row * 4 + column)).get_image()
+		var image = _isolate_character(_frame(source,art_region_25d("zombies",row*4+column) if source==ZOMBIES_V5 else _grid_region(source,row*4+column)).get_image())
 		image = image.get_region(image.get_used_rect())
 		# Fit the COMPLETE silhouette first; old fixed-size blits clipped large heads.
 		var factor = minf(150.0 / image.get_width(), 114.0 / image.get_height())
@@ -419,7 +420,17 @@ static func make_prop(kind: String, size: Vector3) -> Sprite3D:
 	return sprite
 
 static func prop_texture(kind: String) -> ImageTexture:
-	return isolated_grid_texture(PROPS_V5, {"car":0, "kiosk":1, "barrier":2, "cone":3, "lamp":4, "crate":5}.get(kind, 5))
+	var index = {"car":0,"kiosk":1,"barrier":2,"cone":3,"lamp":4,"crate":5,"fire_barrel":6}.get(kind,5)
+	var key = "props-25d:%d" % index
+	if not _atlas_cache.has(key):
+		var image = _isolate_character(_frame(PROPS_V5,art_region_25d("props",index)).get_image())
+		_atlas_cache[key] = ImageTexture.create_from_image(image.get_region(image.get_used_rect()))
+	return _atlas_cache[key]
+
+static func art_region_25d(sheet: String,index: int) -> Rect2:
+	if _regions_25d.is_empty(): _regions_25d = JSON.parse_string(FileAccess.get_file_as_string("res://assets/sprites/regions_25d_v12.json"))
+	var r = _regions_25d[sheet][index]
+	return Rect2(r[0],r[1],r[2],r[3])
 
 static func isolated_grid_texture(source: Texture2D, index: int) -> ImageTexture:
 	var key = "%s:isolated:%d" % [source.resource_path, index]

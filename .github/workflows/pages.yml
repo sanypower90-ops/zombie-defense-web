@@ -54,6 +54,8 @@ jobs:
         run: godot --headless --path game --script res://tests/v10_update_test.gd
       - name: Check unclipped art, density and round voices
         run: godot --headless --path game --script res://tests/v11_update_test.gd
+      - name: Check 2.5D patch and optional automatic attack
+        run: godot --headless --path game --script res://tests/patch_25d_test.gd
       - name: Export Web game
         run: |
           mkdir -p build/web

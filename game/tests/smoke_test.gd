@@ -61,7 +61,7 @@ func _run() -> void:
 		push_error("Landscape mobile UI is outside the screen")
 		quit(1)
 		return
-	if game.touch_controls.get_child_count() != 5:
+	if game.touch_controls.get_child_count() != 6 or game.auto_attack_panel == null:
 		push_error("Touch controls still contain a separate firing stick")
 		quit(1)
 		return
@@ -188,7 +188,7 @@ func _run() -> void:
 		drag.position = touch_start + direction.normalized() * 100.0
 		game.player._input(drag)
 		game.player._aim_at_pointer()
-		var expected = Vector3(direction.x, 0, direction.y).normalized()
+		var expected = game.player._screen_to_ground_direction(direction).normalized()
 		if game.player.aim_direction.dot(expected) < 0.999 or (-game.player.global_transform.basis.z).dot(expected) < 0.999:
 			push_error("Touch facing and firing direction diverged")
 			quit(1)
