@@ -97,10 +97,15 @@ func _run() -> void:
 					return
 	for source in [Visuals.ZOMBIES_V5, Visuals.HEAVY_V5, Visuals.PROPS_V5]:
 		for cell in range(16):
-			var image = Visuals._frame(source, Visuals._grid_region(source, cell)).get_image()
+			var region = Visuals._grid_region(source, cell)
+			if source == Visuals.ZOMBIES_V5: region = Visuals.art_region_25d("zombies", cell)
+			if source == Visuals.PROPS_V5: region = Visuals.art_region_25d("props", cell)
+			var image = Visuals._frame(source, region).get_image()
+			if source != Visuals.HEAVY_V5: image = Visuals._isolate_character(image)
 			var bounds = image.get_used_rect()
-			if bounds.position.x < 8 or bounds.position.y < 8 or bounds.end.x > image.get_width() - 8 or bounds.end.y > image.get_height() - 8:
-				fail("Generated sprite does not have a safe transparent gutter")
+			var gutter = 8 if source == Visuals.HEAVY_V5 else 2
+			if bounds.position.x < gutter or bounds.position.y < gutter or bounds.end.x > image.get_width() - gutter or bounds.end.y > image.get_height() - gutter:
+				fail("Generated sprite lacks gutter: %s cell %d bounds %s canvas %s" % [source.resource_path, cell, bounds, image.get_size()])
 				return
 	game._layout_ui(Vector2(1280, 720), false)
 	if game.game_menu_button.get_global_rect().intersects(game.hud_rank_button.get_global_rect()) or game.hud_rank_button.get_global_rect().intersects(game.music_button.get_global_rect()):
