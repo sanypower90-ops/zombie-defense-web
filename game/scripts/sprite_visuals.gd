@@ -97,6 +97,7 @@ static func _sprite(pixel_size: float) -> Sprite3D:
 static func make_player() -> Sprite3D:
 	var sprite = _sprite(0.020)
 	sprite.name = "PlayerSprite"
+	sprite.scale.x = .84
 	sprite.texture = _player_frame(0, "idle", 0)
 	return sprite
 
@@ -195,7 +196,15 @@ static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: fl
 		sprite.set_meta("animation_key",key)
 		sprite.set_meta("direction36",direction)
 		sprite.set_meta("walk_frame",frame)
-	sprite.position.y = .67
+	ground_character(sprite)
+
+static func ground_character(sprite: Sprite3D) -> void:
+	# All character canvases place the soles at pixel 140 of 144.
+	sprite.offset.y = 68.0
+	var parent = sprite.get_parent() as Node3D
+	sprite.position.y = .055 - parent.global_position.y if parent != null else .055
+	sprite.no_depth_test = false
+	sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 
 static func joined_player_v10(upper: Image, direction: int, frame: int) -> Image:
 	if not _body_v10_cache.has(direction):
@@ -363,13 +372,14 @@ static func update_zombie(sprite: Sprite3D, kind: String, facing: Vector3, phase
 	var action = "attack" if attack > 0.1 else ("hit" if hurt > 0.1 else ("walk" if motion > 0.05 else "idle"))
 	var frame = int(floor(phase * 0.65))
 	sprite.texture = _zombie_frame(kind, direction, action, frame)
+	ground_character(sprite)
 
 static func show_zombie_death(sprite: Sprite3D, kind: String) -> void:
 	if sprite != null:
 		sprite.texture = _zombie_frame(kind, 0, "death", 2)
 		sprite.modulate.a = 0.65
 		sprite.scale.y *= 0.35
-		sprite.position.y -= 0.55
+		ground_character(sprite)
 
 static func _item_rect(kind: String, payload: String) -> Rect2:
 	if kind == "weapon":

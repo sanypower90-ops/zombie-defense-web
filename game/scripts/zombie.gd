@@ -264,6 +264,8 @@ func _animate_visual(delta: float) -> void:
 	if game.camera != null:
 		facing = Basis(Vector3.UP,-game.camera.rotation.y) * facing
 	SpriteVisuals.update_zombie(sprite_visual, kind, facing, walk_phase, motion, attack_left, hurt_left)
+	var shape_node = get_child(0) as CollisionShape3D
+	global_position = game.resolve_solid_position(global_position,(shape_node.shape as CapsuleShape3D).radius)
 
 func take_damage(amount: float) -> void:
 	if dead:

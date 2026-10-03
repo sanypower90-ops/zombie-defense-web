@@ -450,13 +450,65 @@ func _make_prop(kind: String, pos: Vector3, size: Vector3, color: Color) -> void
 	var old_visual = VisualFactory.prop_visual(kind, size, color)
 	body.add_child(old_visual)
 	old_visual.hide()
-	body.add_child(SpriteVisuals.make_prop(kind, size))
+	var art = SpriteVisuals.make_prop(kind, size)
+	body.add_child(art)
+	# Anchor the centre of the illustrated base to the ground footprint.
+	art.offset.y = art.texture.get_height() * .5
+	art.position.y = .05-pos.y
+	art.no_depth_test = false
+	art.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 	var collision = CollisionShape3D.new()
 	var shape = BoxShape3D.new()
-	shape.size = size
+	var width = art.texture.get_width()*art.pixel_size
+	var depth_ratio = .45 if kind == "car" else (.32 if kind == "barrier" else .60)
+	var footprint_width = width*.84
+	if kind in ["lamp","cone"]:
+		footprint_width = .45 if kind == "lamp" else .65
+		depth_ratio = 1.0
+	shape.size = Vector3(footprint_width,size.y,footprint_width*depth_ratio)
 	collision.shape = shape
+	collision.rotation.y = PI/4.0
+	# Image bottom is the front contact edge; volume extends behind it.
+	collision.position = Vector3(-shape.size.z*.353553,0,-shape.size.z*.353553)
 	body.add_child(collision)
+	body.add_to_group("solid_prop")
 	add_child(body)
+
+func resolve_solid_position(point: Vector3, radius: float) -> Vector3:
+	# Also eject actors spawned inside cover; sliding alone cannot fix overlaps.
+	for pass_index in range(3):
+		var corrected_any = false
+		for body in get_tree().get_nodes_in_group("solid_prop"):
+			var shape_node = body.get_child(body.get_child_count()-1) as CollisionShape3D
+			var half = (shape_node.shape as BoxShape3D).size*.5
+			var basis = Basis(Vector3.UP,shape_node.rotation.y)
+			var local = basis.inverse()*(point-shape_node.global_position)
+			var hx = half.x+radius+.02
+			var hz = half.z+radius+.02
+			if absf(local.x)<hx and absf(local.z)<hz:
+				corrected_any = true
+				if hx-absf(local.x)<hz-absf(local.z): local.x = hx*(1.0 if local.x>=0 else -1.0)
+				else: local.z = hz*(1.0 if local.z>=0 else -1.0)
+				var corrected = shape_node.global_position+basis*local
+				point.x = corrected.x
+				point.z = corrected.z
+		if not corrected_any: break
+	if _inside_solid(point,radius):
+		# Adjacent props can form a union where pushing off one enters another.
+		for step in range(1,49):
+			for sector in range(16):
+				var angle = sector*TAU/16.0
+				var candidate = point+Vector3(cos(angle),0,sin(angle))*(step*.25)
+				if not _inside_solid(candidate,radius): return candidate
+	return point
+
+func _inside_solid(point: Vector3, radius: float) -> bool:
+	for body in get_tree().get_nodes_in_group("solid_prop"):
+		var shape_node = body.get_child(body.get_child_count()-1) as CollisionShape3D
+		var half = (shape_node.shape as BoxShape3D).size*.5
+		var local = Basis(Vector3.UP,shape_node.rotation.y).inverse()*(point-shape_node.global_position)
+		if absf(local.x)<half.x+radius+.01 and absf(local.z)<half.z+radius+.01: return true
+	return false
 
 func _build_ground_shadows() -> void:
 	ground_shadows = MultiMeshInstance3D.new()
@@ -1500,6 +1552,8 @@ func _spawn_zombie(kind: String, near_position: Vector3 = Vector3.INF) -> void:
 	else:
 		z.position = _spawn_position_outside_view()
 	add_child(z)
+	z.global_position = resolve_solid_position(z.global_position,(z.get_child(0).shape as CapsuleShape3D).radius)
+	SpriteVisuals.ground_character(z.sprite_visual)
 
 func _spawn_position_outside_view() -> Vector3:
 	var angle = randf() * TAU

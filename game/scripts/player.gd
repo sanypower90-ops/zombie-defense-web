@@ -207,6 +207,7 @@ func _move_player(delta: float) -> void:
 	p.z = clamp(p.z, -36.0, 36.0)
 	p.y = 0.85
 	global_position = p
+	global_position = game.resolve_solid_position(global_position,.42)
 
 func _screen_to_ground_direction(input_vector: Vector2) -> Vector3:
 	if game.camera == null:

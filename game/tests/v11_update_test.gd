@@ -16,7 +16,7 @@ func run_checks() -> void:
 	for direction in range(16):
 		var sprite = Visuals.make_player()
 		Visuals.update_player(sprite,PI-direction*PI/8,TAU*.25,1,1,false,"pistol")
-		if not check(sprite.no_depth_test,"Billboard feet must not be hidden beneath the ground"):return
+		if not check(not sprite.no_depth_test and sprite.offset.y==68.0 and is_equal_approx(sprite.position.y,.055),"Foot-anchored billboards must meet the floor without bypassing depth"):return
 		var image = sprite.texture.get_image()
 		preview.blend_rect(image,Rect2i(Vector2i.ZERO,image.get_size()),Vector2i((direction%4)*240,(direction/4)*144))
 		sprite.free()
