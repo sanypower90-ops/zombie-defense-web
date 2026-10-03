@@ -21,7 +21,7 @@ func run_checks() -> void:
 	effect._physics_process(.1)
 	if not check(effect.elapsed == clock,"Melee effect must stop while paused"): return
 	var slash = game._show_melee_effect("sword",Vector3.ZERO,Vector3.FORWARD,7.15)
-	if not check(slash.sprite.texture == Visuals.AnimationAssets.effect(1,6,0),"Sword must use blue crescent art"): return
+	if not check(slash.sprite.texture == Visuals.AnimationAssets.effect(1,6,0) and not slash.sprite.flip_h,"Sword must use forward-facing blue crescent art"): return
 	var preview = Image.create(1200,432,false,Image.FORMAT_RGBA8)
 	preview.fill(Color(.12,.15,.19))
 	var preview_index = 0
