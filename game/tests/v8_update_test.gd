@@ -29,7 +29,7 @@ func run_checks() -> void:
 		var center = game.camera.unproject_position(point+Vector3.UP*.67)
 		if not check(center.distance_to(root.get_visible_rect().size*.5)<.1 and game.camera.global_basis.is_equal_approx(rotation),"Camera must center the player at every map position without rotating"):return
 	var slash = game._show_melee_effect("sword",Vector3.ZERO,Vector3.RIGHT,7.15)
-	if not check(slash.sprite.flip_h,"Blue crescent must bulge forward instead of backwards"):return
+	if not check(not slash.sprite.flip_h and slash.sprite.texture == Visuals.AnimationAssets.effect(1,6,0),"New blue crescent must bulge forward instead of backwards"):return
 	game.player.hp = 95
 	game.player.store_item("heal")
 	game._update_hud()
