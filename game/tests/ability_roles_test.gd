@@ -60,9 +60,9 @@ func run_checks() -> void:
 	for id in ["sword","fist"]:
 		var sprite = Visuals.make_player()
 		Visuals.update_player(sprite,0,0,0,1,false,id,0)
-		var first = sprite.texture
+		var first = sprite.get_meta("animation_image").get_data()
 		Visuals.update_player(sprite,0,0,0,.3,false,id,1)
-		if not check(first != sprite.texture,"Melee attack must animate: " + id): return
+		if not check(first != sprite.get_meta("animation_image").get_data(),"Melee attack must animate: " + id): return
 		if not check(sprite.texture != Visuals._player_frame(4,"idle",0),"Melee must not retain the gun pose"): return
 		sprite.free()
 	game.queue_free()

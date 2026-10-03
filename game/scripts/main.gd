@@ -1735,8 +1735,11 @@ func resolve_ability_impact(id: String, point: Vector3, enemy: Node3D, damage: f
 	effect.set_meta("impact_position", point)
 	if id == "clone": effect.modulate = Color(0.78, 0.55, 1.0)
 	var tween = create_tween()
-	tween.tween_property(effect, "scale", Vector3.ONE * 1.15, 0.16)
-	tween.parallel().tween_property(effect, "modulate:a", 0.0, 0.26)
+	for frame in range(8):
+		tween.tween_callback(func():
+			if is_instance_valid(effect): effect.texture = SpriteVisuals.attack_texture(id,true,frame))
+		tween.tween_interval(1.0/24.0)
+	tween.tween_property(effect,"modulate:a",0.0,.05)
 	tween.tween_callback(effect.queue_free)
 
 func _rebuild_clones() -> void:
@@ -1903,10 +1906,10 @@ func _play_reference_impact(pos: Vector3, kind: String, diameter: float) -> void
 	add_child(sprite)
 	sprite.global_position = pos
 	var tween = create_tween()
-	for frame in range(4):
+	for frame in range(8):
 		tween.tween_callback(func():
 			if is_instance_valid(sprite): sprite.texture = SpriteVisuals.fx_texture(kind, frame))
-		tween.tween_interval(0.06)
+		tween.tween_interval(1.0/24.0)
 	tween.tween_property(sprite, "modulate:a", 0.0, 0.12)
 	tween.tween_callback(sprite.queue_free)
 
@@ -1920,7 +1923,11 @@ func _directional_fx(start: Vector3, end: Vector3, kind: String, breadth: float,
 	sprite.scale.x = projected_length / (sprite.texture.get_width() * sprite.pixel_size)
 	sprite.scale.y = breadth / (sprite.texture.get_height() * sprite.pixel_size)
 	var tween = create_tween()
-	tween.tween_property(sprite, "modulate:a", 0.0, lifetime)
+	for frame in range(8):
+		tween.tween_callback(func():
+			if is_instance_valid(sprite): sprite.texture = SpriteVisuals.fx_texture(kind,frame))
+		tween.tween_interval(lifetime/8.0)
+	tween.tween_property(sprite, "modulate:a", 0.0, .02)
 	tween.tween_callback(sprite.queue_free)
 	return sprite
 

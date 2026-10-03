@@ -21,7 +21,7 @@ func run_checks() -> void:
 	effect._physics_process(.1)
 	if not check(effect.elapsed == clock,"Melee effect must stop while paused"): return
 	var slash = game._show_melee_effect("sword",Vector3.ZERO,Vector3.FORWARD,7.15)
-	if not check(slash.sprite.texture == Visuals.isolated_grid_texture(Visuals.MELEE_FX,0),"Sword must use blue crescent art"): return
+	if not check(slash.sprite.texture == Visuals.AnimationAssets.effect(1,6,0),"Sword must use blue crescent art"): return
 	var preview = Image.create(1200,432,false,Image.FORMAT_RGBA8)
 	preview.fill(Color(.12,.15,.19))
 	var preview_index = 0
@@ -39,9 +39,9 @@ func run_checks() -> void:
 	for id in ["sword","fist"]:
 		var sprite = Visuals.make_player()
 		Visuals.update_player(sprite,PI,0,1,0,false,id)
-		var first = sprite.texture
+		var first = sprite.get_meta("animation_image").get_data()
 		Visuals.update_player(sprite,PI,TAU/4,1,0,false,id)
-		if not check(first != sprite.texture,"Melee walking legs must animate"): return
+		if not check(first != sprite.get_meta("animation_image").get_data(),"Melee walking legs must animate"): return
 		sprite.free()
 	preview.save_png("/private/tmp/v7-held-preview.png")
 	var ground = game.find_child("IllustratedGround",true,false)

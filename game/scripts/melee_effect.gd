@@ -32,7 +32,7 @@ func advance(delta: float) -> void:
 		queue_free()
 		return
 	var cell = mini(3,int(progress*4)) if kind == "sword" else 4
-	sprite.texture = Visuals.isolated_grid_texture(Visuals.MELEE_FX,cell)
+	sprite.texture = Visuals.AnimationAssets.effect(1,6,mini(7,int(progress*8))) if kind == "sword" else Visuals.isolated_grid_texture(Visuals.MELEE_FX,cell)
 	sprite.pixel_size = (reach * 1.1 if kind == "sword" else 1.0) / maxf(sprite.texture.get_width(),sprite.texture.get_height())
 	sprite.modulate.a = 1.0-progress
 	global_position = start + direction * (reach * .45 if kind == "sword" else reach * .8 * progress)

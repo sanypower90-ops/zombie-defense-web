@@ -1,4 +1,5 @@
 extends RefCounted
+const AnimationAssets = preload("res://scripts/animation_assets.gd")
 
 # Independent ImageTextures prevent Sprite3D atlas UVs from sampling neighbors.
 const FLIGHT = preload("res://assets/sprites/flight_v5.png")
@@ -179,18 +180,22 @@ static func _isolate_character(source: Image) -> Image:
 static func update_player(sprite: Sprite3D, yaw: float, phase: float, motion: float, recoil: float, hurt: bool = false, weapon_id: String = "pistol", strike: int = 0) -> void:
 	if sprite == null:
 		return
-	var forward = Vector3(-sin(yaw),0,-cos(yaw))
-	var direction16 = posmod(int(round(-atan2(forward.x,forward.z)/(PI/8.0))),16)
-	var direction = posmod(int(round(direction16/2.0)),8)
-	var frame = int(floor(phase / TAU * 4.0))
-	var moving = motion > .05
+	var direction = AnimationAssets.direction_index(yaw)
+	var frame = posmod(int(floor(phase/TAU*8.0)),8) if motion>.05 else 3
+	var key = "%s:%d:%d:%d:%d" % [weapon_id,direction,frame,int(recoil*8),strike%2]
 	sprite.flip_h = false
-	var key = "joined-v10:%s:%d:%d:%s" % [weapon_id,direction16,posmod(frame,4) if moving else -1,recoil>.55]
-	if not _atlas_cache.has(key):
-		var old = melee_player_v8(weapon_id,direction,recoil>.55,0,false) if weapon_id in ["sword","fist"] else armed_frame(direction,"idle",0,weapon_id)
-		_atlas_cache[key] = ImageTexture.create_from_image(joined_player_v10(old.get_image(),direction16,frame if moving else -1))
-	sprite.texture = _atlas_cache[key]
-	sprite.position.y = .67 + sin(phase*2)*.015*motion
+	if sprite.get_meta("animation_key","") != key:
+		var image = AnimationAssets.player_frame(weapon_id,direction,frame,recoil,strike)
+		sprite.set_meta("animation_image",image)
+		if sprite.has_meta("dynamic_player_texture"):
+			(sprite.texture as ImageTexture).update(image)
+		else:
+			sprite.texture = ImageTexture.create_from_image(image)
+			sprite.set_meta("dynamic_player_texture",true)
+		sprite.set_meta("animation_key",key)
+		sprite.set_meta("direction36",direction)
+		sprite.set_meta("walk_frame",frame)
+	sprite.position.y = .67
 
 static func joined_player_v10(upper: Image, direction: int, frame: int) -> Image:
 	if not _body_v10_cache.has(direction):
@@ -490,7 +495,10 @@ static func make_ability_sprite(id: String, diameter: float = 1.4) -> Sprite3D:
 	sprite.name = "AbilityIllustration"
 	return sprite
 
-static func attack_texture(id: String, impact: bool = false) -> ImageTexture:
+static func attack_texture(id: String, impact: bool = false, frame: int = 0) -> ImageTexture:
+	if id in ["auto_orbit","auto_flame","auto_blade","auto_missile","auto_shock"]:
+		var row = {"auto_orbit":3,"auto_shock":5,"auto_flame":2,"auto_blade":4,"auto_missile":3}.get(id,0) if impact else {"auto_orbit":5,"auto_shock":3,"auto_flame":4,"auto_blade":6,"auto_missile":5}.get(id,0)
+		return AnimationAssets.effect(1 if impact else 0,row,frame)
 	if id != "clone":
 		var cells = {"auto_orbit":5,"auto_shock":6,"auto_flame":7,"auto_blade":8,"auto_missile":9} if impact else {"auto_orbit":0,"auto_shock":1,"auto_flame":2,"auto_blade":3,"auto_missile":4}
 		return isolated_grid_texture(ATTACKS_V8,cells.get(id,0))
@@ -530,6 +538,10 @@ static func make_attack_sprite(id: String, impact: bool = false, diameter: float
 	return sprite
 
 static func fx_texture(kind: String, frame: int = 0) -> ImageTexture:
+	if kind in ["bullet","muzzle","laser","flame","rocket","explosion","energy_impact","shock"]:
+		var impact = kind in ["explosion","energy_impact","shock"]
+		var row = {"explosion":2,"energy_impact":1,"shock":5}.get(kind,0) if impact else {"bullet":0,"muzzle":2,"laser":3,"flame":4,"rocket":5}.get(kind,0)
+		return AnimationAssets.effect(1 if impact else 0,row,frame)
 	if kind == "blade": return ability_icon("auto_blade")
 	if kind == "shock": return ability_icon("auto_shock")
 	var regions = {
@@ -549,7 +561,7 @@ static func fx_texture(kind: String, frame: int = 0) -> ImageTexture:
 static func make_fx(kind: String, diameter: float = 1.0) -> Sprite3D:
 	var sprite = _sprite(0.01)
 	sprite.name = "ReferenceFX_" + kind
-	sprite.flip_h = kind == "bullet"
+	sprite.flip_h = false
 	sprite.texture = fx_texture(kind)
 	sprite.pixel_size = diameter / maxf(sprite.texture.get_width(), sprite.texture.get_height())
 	sprite.position = Vector3.ZERO

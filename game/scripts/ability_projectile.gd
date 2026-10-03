@@ -41,6 +41,7 @@ func advance(delta: float) -> void:
 	# Movement and damage share the same projectile. A paused game freezes both.
 	if spent: return
 	elapsed += delta
+	if illustration != null: illustration.texture = Visuals.attack_texture(ability_id,false,int(elapsed*24.0))
 	_update_trails(delta)
 	if elapsed > 8.0:
 		queue_free()
@@ -79,6 +80,7 @@ func _add_trail() -> void:
 	if trails.size() >= 6: return
 	var spark = Visuals.make_attack_sprite(ability_id, false, 1.15)
 	add_child(spark)
+	spark.texture = illustration.texture
 	spark.global_basis = illustration.global_basis
 	spark.modulate.a = .38
 	trails.append({"sprite":spark, "position":global_position, "age":0.0})

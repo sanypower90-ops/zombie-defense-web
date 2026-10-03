@@ -30,9 +30,9 @@ func run_checks() -> void:
 	for direction in range(16):
 		for weapon_index in range(2):
 			var sprite = Visuals.make_player()
-			Visuals.update_player(sprite,PI-direction*PI/8,TAU*.25,1,1,false,["lmg","sword"][weapon_index])
+			Visuals.update_player(sprite,PI-direction*PI/8,TAU*.25,1,1,false,["lmg","pistol"][weapon_index])
 			var image = sprite.texture.get_image()
-			textures[sprite.texture.get_instance_id()] = true
+			textures[hash(image.get_data())] = true
 			for y in range(86,103):
 				var connected = false
 				for x in range(97,143):
