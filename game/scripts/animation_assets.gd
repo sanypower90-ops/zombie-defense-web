@@ -67,6 +67,8 @@ static func player_frame(id: String, direction: int, frame: int, recoil: float, 
 		var row = facing/2 if sheet == 0 else [1,3,5,7].find(facing)
 		var phase = mini(7,int((1.0-recoil)*8))
 		if id == "fist": phase = (phase%4)+(strike%2)*4
+		var key = "%s:%d:%d" % [id,facing,phase]
+		if bodies.has(key): return bodies[key]
 		var attack = _cut("melee_%s_%d_v13" % [id,sheet],row*8+phase)
 		var neutral = _region("melee_%s_%d_v13" % [id,sheet],row*8)
 		var factor = 116.0/neutral.size.y
@@ -74,6 +76,7 @@ static func player_frame(id: String, direction: int, frame: int, recoil: float, 
 		var canvas = Image.create(240,144,false,Image.FORMAT_RGBA8)
 		canvas.fill(Color.TRANSPARENT)
 		canvas.blit_rect(attack,Rect2i(Vector2i.ZERO,attack.get_size()),Vector2i((240-attack.get_width())/2,140-attack.get_height()))
+		bodies[key] = canvas
 		return canvas
 	var image = body(direction,frame).duplicate()
 	var angle = direction*TAU/36.0
